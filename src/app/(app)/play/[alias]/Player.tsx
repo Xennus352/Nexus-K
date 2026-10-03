@@ -6,6 +6,7 @@ import gsap from "gsap";
 import confetti from "canvas-confetti";
 import { logSpin } from "@/server/actions";
 import { themeFor } from "@/lib/theme";
+import Loader from "@/components/Loader";
 
 type Grid = number[][];
 type Win = { pay: number; sym: number; num: number; li: number; xy: [number, number][] };
@@ -178,7 +179,7 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
   }
 
   if (error) return <p className="mt-20 text-rose-400">{error}</p>;
-  if (!grid) return <p className="mt-20 text-slate-400">Loading {alias}…</p>;
+  if (!grid) return <Loader label={`DEALING ${alias.toUpperCase()}…`} />;
 
   const cols = grid.length;
   const rows = grid[0]?.length ?? 0;

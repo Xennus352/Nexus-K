@@ -1,6 +1,7 @@
 import { getSession } from "@/lib/session";
 import Sidebar from "@/components/Sidebar";
 import Topbar from "@/components/Topbar";
+import MobileNav from "@/components/MobileNav";
 
 export default async function AppLayout({
   children,
@@ -14,7 +15,8 @@ export default async function AppLayout({
       <Sidebar />
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar email={s.email} uid={s.uid} token={s.token} />
-        <div className="flex-1 p-6">{children}</div>
+        <div className="flex-1 p-4 pb-24 md:p-6 md:pb-6">{children}</div>
+        <MobileNav />
       </div>
     </div>
   );

@@ -3,6 +3,7 @@ import { claimBonus } from "@/server/actions";
 import { prisma } from "@/lib/prisma";
 import Gallery from "@/components/Gallery";
 import AuthForm from "@/components/AuthForm";
+import FloatingChips from "@/components/FloatingChips";
 import Link from "next/link";
 
 const ENGINE = process.env.SLOTOPOL_URL ?? "http://localhost:8080";
@@ -51,6 +52,7 @@ export default async function Home({
     <div className="space-y-8">
       {/* hero */}
       <section className="relative overflow-hidden rounded-3xl border border-sky-500/20 bg-gradient-to-r from-[#0b1a4b] via-[#122a6e] to-[#0b1a4b] p-10">
+        <FloatingChips />
         <div className="relative z-10">
           <p className="text-xs tracking-[0.4em] text-sky-300">WELCOME BACK{user ? `, ${user.email.split("@")[0].toUpperCase()}` : ""}</p>
           <h2 className="mt-2 text-4xl font-black">Experience Luxury, Play Royal.</h2>
@@ -61,7 +63,6 @@ export default async function Home({
             Play Now
           </Link>
         </div>
-        <div className="absolute right-10 top-6 text-8xl opacity-40">💎🎰</div>
       </section>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">

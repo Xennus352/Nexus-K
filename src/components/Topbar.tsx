@@ -31,13 +31,13 @@ export default async function Topbar({
 
   return (
     <header className="sticky top-0 z-10 flex items-center justify-between border-b border-blue-950 bg-[#232f5c]/80 px-6 py-4 backdrop-blur">
-      <div className="flex items-center gap-2 text-amber-300">
+      <div className="hidden items-center gap-2 text-amber-300 sm:flex">
         <Gem className="h-5 w-5" />
         <span className="font-bold">VIP</span>
         <span className="text-slate-500">DIAMOND</span>
       </div>
-      <div className="flex items-center gap-4">
-        <div className="rounded-xl border border-sky-500/30 bg-sky-950/40 px-4 py-2 text-right">
+      <div className="flex items-center gap-2 sm:gap-4">
+        <div className="rounded-xl border border-sky-500/30 bg-sky-950/40 px-3 py-2 text-right sm:px-4">
           <div className="text-[10px] tracking-widest text-sky-400">TOTAL BALANCE</div>
           <div className="font-mono text-lg font-bold text-sky-200">
             💎 {wallet !== null ? wallet.toLocaleString() : "—"}
