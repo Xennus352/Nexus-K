@@ -66,3 +66,29 @@ export async function logSpin(alias: string, bet: number, win: number) {
   if (!user) return;
   await prisma.spin.create({ data: { userId: user.id, alias, bet, win } });
 }
+
+async function engineAdd(sum: number) {
+  const { getSession } = await import("@/lib/session");
+  const s = await getSession();
+  if (!s) return;
+  await fetch(`${ENGINE}/prop/wallet/add`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${s.token}`,
+    },
+    body: JSON.stringify({ cid: 1, uid: s.uid, sum }),
+  });
+}
+
+export async function addFunds() {
+  await engineAdd(1000);
+  const { revalidatePath } = await import("next/cache");
+  revalidatePath("/");
+}
+
+export async function claimBonus() {
+  await engineAdd(250);
+  const { revalidatePath } = await import("next/cache");
+  revalidatePath("/");
+}
