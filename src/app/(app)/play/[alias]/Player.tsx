@@ -74,6 +74,7 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
   const [auto, setAuto] = useState(false);
   const [history, setHistory] = useState<{ bet: number; win: number; time: string }[]>([]);
   const [bigWin, setBigWin] = useState(0);
+  const [notice, setNotice] = useState("");
   const [showPaytable, setShowPaytable] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const cellRefs = useRef<(HTMLDivElement | null)[]>([]);
@@ -106,7 +107,7 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
       body: JSON.stringify({ gid, bet }),
     });
     const j = await res.json();
-    if (j.what) { setBusy(false); setAuto(false); return; }
+    if (j.what) { setBusy(false); setAuto(false); setNotice(`⚠️ ${j.what}`); return; }
 
     const finals: Grid = j.game.grid;
     const flat: number[] = [];
@@ -137,6 +138,7 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
       await doSpin();
     } catch (e) {
       console.error(e);
+      setNotice("⚠️ Network error — try again");
     } finally {
       setBusy(false);
     }
@@ -159,6 +161,7 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
       body: JSON.stringify({ gid, mult: 2 }),
     });
     const j = await res.json();
+    if (j.what) { setNotice(`⚠️ ${j.what}`); setBusy(false); return; }
     if (!j.what) {
       setGain(j.gain ?? 0);
       setWallet(j.wallet);
@@ -175,7 +178,8 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
       body: JSON.stringify({ gid }),
     });
     const j = await res.json();
-    if (!j.what) { setWallet(j.wallet); setGain(0); }
+    if (j.what) { setNotice(`⚠️ ${j.what}`); return; }
+    setWallet(j.wallet); setGain(0); setNotice("");
   }
 
   if (error) return <p className="mt-20 text-rose-400">{error}</p>;
@@ -300,6 +304,12 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
             <span className="font-mono text-cyan-300">Gain: {gain}</span>
             <button onClick={doubleup} disabled={busy} className="rounded-lg border border-sky-500/50 px-4 py-1.5 font-bold text-sky-300 hover:bg-sky-500/10">Double ×2</button>
             <button onClick={collect} disabled={busy} className="rounded-lg border border-emerald-500/50 px-4 py-1.5 font-bold text-emerald-300 hover:bg-emerald-500/10">Collect</button>
+          </div>
+        )}
+
+        {notice && (
+          <div className="mt-3 rounded-xl border border-rose-500/40 bg-rose-950/40 px-4 py-2 text-center font-bold text-rose-300">
+            {notice}
           </div>
         )}
       </div>

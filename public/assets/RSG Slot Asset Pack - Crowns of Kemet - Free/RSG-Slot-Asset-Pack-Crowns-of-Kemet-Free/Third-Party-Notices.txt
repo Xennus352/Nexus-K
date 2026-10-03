@@ -1,0 +1,72 @@
+RSG Slot Asset Pack - Crowns of Kemet - Free
+Third-Party Notices
+============================================================
+
+This file exists to satisfy Unity Asset Store submission guideline 1.2.a
+(disclosure of fonts, audio and other third-party components with dependent
+licenses).
+
+FONTS
+-----
+No font files are distributed in this pack.
+
+All lettering in the PNG exports is rasterised artwork. The layered .psb sources
+do still contain live text layers, which reference the following typefaces - all
+of them free for commercial use:
+
+  Amarante Regular
+      SIL Open Font License 1.1
+      https://fonts.google.com/specimen/Amarante
+
+  Aladin Regular
+      SIL Open Font License 1.1
+      https://fonts.google.com/specimen/Aladin
+
+  Molot
+      Free for personal and commercial use (Jovanny Lemonad / Roman Yershov, 2008)
+      https://www.1001fonts.com/molot-font.html
+
+  Klarissa
+      1001Fonts Free For Commercial Use licence (Typographer Mediengestaltung)
+      https://www.1001fonts.com/klarissa-font.html
+
+  HIVNotRetro Regular
+      SIL Open Font License (Feorag, 2016)
+      https://www.1001fonts.com/hivnotretro-font.html
+
+None of these licences restrict the use, sale or redistribution of rasterised
+output, so the PNG exports and any images you render from the sources are
+unencumbered. The licences govern the font software itself, which this pack does
+not contain.
+
+If you open a layered .psb, Photoshop will report these fonts as missing unless
+you have them installed. All five are free downloads. Rasterising or replacing
+the affected text layers also resolves it.
+
+The following additional entries appear in the .psb font tables but are
+Photoshop's own internals rather than typefaces chosen by the artist, and are
+listed only for completeness: AdobeInvisFont, MyriadPro-Regular,
+PhotoshopKinsokuHard, PhotoshopKinsokuSoft.
+
+SPINE RUNTIMES
+--------------
+No Spine Runtime code is distributed in this pack. The .json / .atlas / .png
+files under Spine/ are exported animation data authored by Retro Style Games.
+Playing them back requires a Spine Runtime from Esoteric Software, which each
+user must obtain under their own Spine Editor license
+(https://esotericsoftware.com/spine-runtimes-license).
+
+The Unity demo scene deliberately avoids any Spine dependency and uses static
+sprites, so nothing in this package inherits that license obligation.
+
+AUDIO
+-----
+None. This pack contains no audio.
+
+CODE
+----
+None. This pack contains no scripts, shaders or executables.
+
+OTHER
+-----
+All artwork is original work produced by Retro Style Games.

@@ -1,0 +1,615 @@
+
+character_anubis.png
+size: 1413,1540
+format: RGBA8888
+filter: Linear,Linear
+repeat: none
+back_fire_1
+  rotate: false
+  xy: 1348, 324
+  size: 62, 86
+  orig: 62, 86
+  offset: 0, 0
+  index: -1
+back_fire_2
+  rotate: true
+  xy: 515, 17
+  size: 61, 83
+  orig: 61, 83
+  offset: 0, 0
+  index: -1
+back_fire_3
+  rotate: true
+  xy: 355, 11
+  size: 56, 72
+  orig: 56, 72
+  offset: 0, 0
+  index: -1
+back_fire_4
+  rotate: true
+  xy: 2, 8
+  size: 56, 82
+  orig: 56, 82
+  offset: 0, 0
+  index: -1
+back_fire_5
+  rotate: false
+  xy: 380, 672
+  size: 57, 81
+  orig: 57, 81
+  offset: 0, 0
+  index: -1
+back_fire_6
+  rotate: true
+  xy: 273, 10
+  size: 57, 80
+  orig: 57, 80
+  offset: 0, 0
+  index: -1
+back_fire_7
+  rotate: true
+  xy: 969, 2
+  size: 59, 83
+  orig: 59, 83
+  offset: 0, 0
+  index: -1
+character_symbol_anubis_Hand_l_finger_a
+  rotate: true
+  xy: 864, 148
+  size: 22, 90
+  orig: 22, 90
+  offset: 0, 0
+  index: -1
+character_symbol_anubis_Hand_l_finger_a_blue_light
+  rotate: false
+  xy: 946, 184
+  size: 18, 86
+  orig: 18, 86
+  offset: 0, 0
+  index: -1
+character_symbol_anubis_Hand_l_finger_b
+  rotate: false
+  xy: 1355, 603
+  size: 43, 82
+  orig: 43, 84
+  offset: 0, 2
+  index: -1
+character_symbol_anubis_Hand_l_finger_b_blue_light
+  rotate: false
+  xy: 983, 424
+  size: 37, 79
+  orig: 37, 79
+  offset: 0, 0
+  index: -1
+character_symbol_anubis_Hand_l_finger_c
+  rotate: false
+  xy: 1355, 687
+  size: 54, 68
+  orig: 54, 68
+  offset: 0, 0
+  index: -1
+character_symbol_anubis_Hand_l_finger_c_blue_light
+  rotate: false
+  xy: 380, 605
+  size: 54, 65
+  orig: 54, 65
+  offset: 0, 0
+  index: -1
+character_symbol_anubis_Hand_l_finger_d
+  rotate: false
+  xy: 753, 6
+  size: 58, 46
+  orig: 58, 47
+  offset: 0, 1
+  index: -1
+character_symbol_anubis_Hand_l_finger_d_blue_light
+  rotate: false
+  xy: 813, 10
+  size: 57, 42
+  orig: 57, 42
+  offset: 0, 0
+  index: -1
+character_symbol_anubis_Hand_l_forearm
+  rotate: false
+  xy: 631, 95
+  size: 89, 141
+  orig: 89, 141
+  offset: 0, 0
+  index: -1
+character_symbol_anubis_Hand_l_forearm_blue_light
+  rotate: false
+  xy: 434, 6
+  size: 79, 72
+  orig: 79, 72
+  offset: 0, 0
+  index: -1
+character_symbol_anubis_Hand_l_palm
+  rotate: true
+  xy: 86, 9
+  size: 55, 83
+  orig: 55, 83
+  offset: 0, 0
+  index: -1
+character_symbol_anubis_Hand_l_palm_blue_light
+  rotate: true
+  xy: 1151, 1269
+  size: 28, 62
+  orig: 28, 62
+  offset: 0, 0
+  index: -1
+character_symbol_anubis_Hand_l_pauldron
+  rotate: true
+  xy: 890, 62
+  size: 84, 77
+  orig: 84, 77
+  offset: 0, 0
+  index: -1
+character_symbol_anubis_Hand_l_pauldron_back
+  rotate: false
+  xy: 1088, 31
+  size: 110, 81
+  orig: 110, 81
+  offset: 0, 0
+  index: -1
+character_symbol_anubis_Hand_l_pauldron_shadow
+  rotate: true
+  xy: 890, 4
+  size: 56, 75
+  orig: 56, 75
+  offset: 0, 0
+  index: -1
+character_symbol_anubis_Hand_l_top
+  rotate: true
+  xy: 1141, 756
+  size: 110, 182
+  orig: 133, 186
+  offset: 10, 0
+  index: -1
+character_symbol_anubis_Hand_l_top_shadow
+  rotate: true
+  xy: 754, 54
+  size: 87, 134
+  orig: 87, 142
+  offset: 0, 0
+  index: -1
+character_symbol_anubis_Hand_r_pauldron
+  rotate: false
+  xy: 1290, 165
+  size: 111, 111
+  orig: 111, 111
+  offset: 0, 0
+  index: -1
+character_symbol_anubis_Hand_r_pauldron_shadow
+  rotate: false
+  xy: 1220, 278
+  size: 126, 132
+  orig: 126, 132
+  offset: 0, 0
+  index: -1
+character_symbol_anubis_Skirt_back
+  rotate: true
+  xy: 1141, 978
+  size: 289, 261
+  orig: 289, 261
+  offset: 0, 0
+  index: -1
+character_symbol_anubis_belt
+  rotate: false
+  xy: 2, 66
+  size: 199, 135
+  orig: 201, 135
+  offset: 0, 0
+  index: -1
+character_symbol_anubis_belt_back_left
+  rotate: true
+  xy: 722, 97
+  size: 22, 26
+  orig: 22, 26
+  offset: 0, 0
+  index: -1
+character_symbol_anubis_belt_back_right
+  rotate: true
+  xy: 1398, 135
+  size: 28, 13
+  orig: 28, 13
+  offset: 0, 0
+  index: -1
+character_symbol_anubis_bg
+  rotate: true
+  xy: 380, 1012
+  size: 255, 759
+  orig: 255, 759
+  offset: 0, 0
+  index: -1
+character_symbol_anubis_body
+  rotate: false
+  xy: 2, 603
+  size: 376, 935
+  orig: 376, 938
+  offset: 0, 0
+  index: -1
+character_symbol_anubis_body_neck_shadow
+  rotate: false
+  xy: 1297, 12
+  size: 99, 84
+  orig: 99, 84
+  offset: 0, 0
+  index: -1
+character_symbol_anubis_body_skirt_shadow
+  rotate: true
+  xy: 1022, 412
+  size: 341, 331
+  orig: 341, 356
+  offset: 0, 25
+  index: -1
+character_symbol_anubis_frame
+  rotate: true
+  xy: 380, 1269
+  size: 269, 769
+  orig: 271, 771
+  offset: 1, 1
+  index: -1
+character_symbol_anubis_frame_shadow_01
+  rotate: false
+  xy: 1215, 1287
+  size: 53, 10
+  orig: 53, 10
+  offset: 0, 0
+  index: -1
+character_symbol_anubis_frame_shadow_02
+  rotate: true
+  xy: 1398, 67
+  size: 45, 10
+  orig: 45, 10
+  offset: 0, 0
+  index: -1
+character_symbol_anubis_frame_shadow_03
+  rotate: false
+  xy: 1398, 24
+  size: 9, 41
+  orig: 9, 41
+  offset: 0, 0
+  index: -1
+character_symbol_anubis_frame_shadow_04
+  rotate: false
+  xy: 969, 64
+  size: 9, 83
+  orig: 9, 83
+  offset: 0, 0
+  index: -1
+character_symbol_anubis_hand_r
+  rotate: false
+  xy: 983, 63
+  size: 103, 229
+  orig: 103, 229
+  offset: 0, 0
+  index: -1
+character_symbol_anubis_hand_r_forearm
+  rotate: true
+  xy: 203, 69
+  size: 132, 229
+  orig: 132, 229
+  offset: 0, 0
+  index: -1
+character_symbol_anubis_hand_r_forearm_back
+  rotate: false
+  xy: 722, 153
+  size: 30, 45
+  orig: 30, 45
+  offset: 0, 0
+  index: -1
+character_symbol_anubis_hand_r_pauldron_back
+  rotate: true
+  xy: 1387, 904
+  size: 39, 22
+  orig: 39, 22
+  offset: 0, 0
+  index: -1
+character_symbol_anubis_hand_r_shadow
+  rotate: false
+  xy: 1088, 114
+  size: 113, 178
+  orig: 113, 178
+  offset: 0, 0
+  index: -1
+character_symbol_anubis_head
+  rotate: false
+  xy: 1272, 1323
+  size: 139, 215
+  orig: 139, 215
+  offset: 0, 0
+  index: -1
+character_symbol_anubis_head_ear
+  rotate: true
+  xy: 631, 44
+  size: 49, 120
+  orig: 49, 120
+  offset: 0, 0
+  index: -1
+character_symbol_anubis_head_ear_earing
+  rotate: true
+  xy: 722, 200
+  size: 36, 31
+  orig: 36, 31
+  offset: 0, 0
+  index: -1
+character_symbol_anubis_head_ear_earing_back
+  rotate: false
+  xy: 1387, 945
+  size: 23, 31
+  orig: 23, 31
+  offset: 0, 0
+  index: -1
+character_symbol_anubis_head_ear_earing_shadow
+  rotate: false
+  xy: 600, 46
+  size: 22, 32
+  orig: 22, 32
+  offset: 0, 0
+  index: -1
+character_symbol_anubis_head_eye_l_eyelid_a
+  rotate: true
+  xy: 171, 13
+  size: 18, 20
+  orig: 18, 20
+  offset: 0, 0
+  index: -1
+character_symbol_anubis_head_eye_l_eyelid_a_shadow
+  rotate: false
+  xy: 1398, 114
+  size: 13, 19
+  orig: 13, 19
+  offset: 0, 0
+  index: -1
+character_symbol_anubis_head_eye_l_eyelid_b
+  rotate: false
+  xy: 872, 35
+  size: 14, 17
+  orig: 14, 18
+  offset: 0, 0
+  index: -1
+character_symbol_anubis_head_eye_l_highlight
+  rotate: true
+  xy: 1404, 1261
+  size: 6, 4
+  orig: 6, 4
+  offset: 0, 0
+  index: -1
+character_symbol_anubis_head_eye_l_pupil
+  rotate: true
+  xy: 1203, 280
+  size: 12, 13
+  orig: 12, 13
+  offset: 0, 0
+  index: -1
+character_symbol_anubis_head_eye_l_sclera
+  rotate: true
+  xy: 687, 24
+  size: 18, 19
+  orig: 18, 19
+  offset: 0, 0
+  index: -1
+character_symbol_anubis_head_eye_r_eyelid_b
+  rotate: true
+  xy: 171, 33
+  size: 31, 19
+  orig: 31, 19
+  offset: 0, 0
+  index: -1
+character_symbol_anubis_head_eye_r_highlight
+  rotate: false
+  xy: 1349, 757
+  size: 7, 6
+  orig: 7, 6
+  offset: 0, 0
+  index: -1
+character_symbol_anubis_head_eye_r_iris
+  rotate: false
+  xy: 666, 23
+  size: 19, 19
+  orig: 19, 19
+  offset: 0, 0
+  index: -1
+character_symbol_anubis_head_eye_r_pupil
+  rotate: true
+  xy: 1336, 757
+  size: 6, 11
+  orig: 6, 11
+  offset: 0, 0
+  index: -1
+character_symbol_anubis_head_eye_r_sclera
+  rotate: false
+  xy: 722, 121
+  size: 30, 30
+  orig: 30, 30
+  offset: 0, 0
+  index: -1
+character_symbol_anubis_head_eye_r_shadow
+  rotate: true
+  xy: 1387, 869
+  size: 33, 22
+  orig: 35, 23
+  offset: 2, 1
+  index: -1
+character_symbol_anubis_head_eyelid_left_close_bot
+  rotate: true
+  xy: 1325, 755
+  size: 8, 9
+  orig: 8, 9
+  offset: 0, 0
+  index: -1
+character_symbol_anubis_head_eyelid_left_close_top
+  rotate: true
+  xy: 1253, 1270
+  size: 15, 17
+  orig: 15, 17
+  offset: 0, 0
+  index: -1
+character_symbol_anubis_head_eyelid_right_close_bot
+  rotate: true
+  xy: 956, 149
+  size: 33, 22
+  orig: 33, 22
+  offset: 0, 0
+  index: -1
+character_symbol_anubis_head_eyelid_right_close_top
+  rotate: true
+  xy: 1054, 28
+  size: 33, 22
+  orig: 33, 26
+  offset: 0, 0
+  index: -1
+character_symbol_anubis_head_gold_back
+  rotate: false
+  xy: 1215, 1270
+  size: 36, 15
+  orig: 37, 15
+  offset: 0, 0
+  index: -1
+character_symbol_anubis_head_hair_l
+  rotate: true
+  xy: 203, 6
+  size: 61, 68
+  orig: 61, 70
+  offset: 0, 2
+  index: -1
+character_symbol_anubis_head_hair_l_back
+  rotate: true
+  xy: 1348, 278
+  size: 44, 54
+  orig: 44, 54
+  offset: 0, 0
+  index: -1
+character_symbol_anubis_head_hair_l_back_shadow
+  rotate: true
+  xy: 600, 5
+  size: 37, 64
+  orig: 37, 67
+  offset: 0, 2
+  index: -1
+character_symbol_anubis_head_hair_l_shadow
+  rotate: false
+  xy: 864, 172
+  size: 80, 98
+  orig: 80, 98
+  offset: 0, 0
+  index: -1
+character_symbol_anubis_head_hair_r
+  rotate: false
+  xy: 1325, 765
+  size: 86, 101
+  orig: 86, 101
+  offset: 0, 0
+  index: -1
+character_symbol_anubis_head_hair_r_back
+  rotate: true
+  xy: 1272, 1271
+  size: 50, 88
+  orig: 50, 88
+  offset: 0, 0
+  index: -1
+character_symbol_anubis_head_hair_r_shadow
+  rotate: true
+  xy: 1200, 4
+  size: 90, 95
+  orig: 90, 98
+  offset: 0, 3
+  index: -1
+character_symbol_anubis_head_light_blue
+  rotate: true
+  xy: 1290, 98
+  size: 65, 106
+  orig: 65, 125
+  offset: 0, 0
+  index: -1
+character_symbol_anubis_necklace
+  rotate: false
+  xy: 983, 294
+  size: 235, 116
+  orig: 235, 116
+  offset: 0, 0
+  index: -1
+character_symbol_anubis_necklace_shadow
+  rotate: true
+  xy: 1151, 1299
+  size: 239, 119
+  orig: 239, 119
+  offset: 0, 0
+  index: -1
+character_symbol_anubis_overall_shadow
+  rotate: true
+  xy: 439, 505
+  size: 248, 581
+  orig: 250, 590
+  offset: 1, 1
+  index: -1
+character_symbol_anubis_pandon
+  rotate: true
+  xy: 439, 372
+  size: 131, 315
+  orig: 131, 315
+  offset: 0, 0
+  index: -1
+character_symbol_anubis_pandon_shadpw
+  rotate: false
+  xy: 1203, 96
+  size: 85, 180
+  orig: 163, 180
+  offset: 78, 0
+  index: -1
+character_symbol_anubis_shadow
+  rotate: true
+  xy: 380, 755
+  size: 255, 759
+  orig: 255, 759
+  offset: 0, 0
+  index: -1
+character_symbol_anubis_skirt_l
+  rotate: true
+  xy: 1141, 868
+  size: 108, 244
+  orig: 108, 254
+  offset: 0, 0
+  index: -1
+character_symbol_anubis_skirt_r
+  rotate: false
+  xy: 439, 80
+  size: 190, 290
+  orig: 190, 290
+  offset: 0, 0
+  index: -1
+coin_light
+  rotate: true
+  xy: 2, 203
+  size: 398, 435
+  orig: 414, 453
+  offset: 8, 9
+  index: -1
+fx_back_fire_glow_b
+  rotate: true
+  xy: 1362, 1269
+  size: 52, 42
+  orig: 55, 74
+  offset: 2, 29
+  index: -1
+fx_flamepillar_bot_glow
+  rotate: false
+  xy: 755, 143
+  size: 107, 127
+  orig: 123, 143
+  offset: 8, 7
+  index: -1
+fx_glow_flame_statue
+  rotate: false
+  xy: 631, 238
+  size: 122, 132
+  orig: 145, 155
+  offset: 12, 11
+  index: -1
+light
+  rotate: true
+  xy: 756, 272
+  size: 231, 225
+  orig: 283, 273
+  offset: 26, 24
+  index: -1
