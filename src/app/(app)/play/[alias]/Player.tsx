@@ -124,17 +124,26 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
       gsap.fromTo(".play-cell", { scale: 1 }, { scale: 1.12, duration: 0.15, repeat: 3, yoyo: true, stagger: 0.02 });
       if (pay >= bet * 5) {
         setBigWin(pay);
-        confetti({ particleCount: 120, spread: 75, origin: { y: 0.6 } });
+        try { confetti({ particleCount: 120, spread: 75, origin: { y: 0.6 } }); } catch { /* non-fatal */ }
       }
     }
     setHistory((h) => [{ bet, win: pay, time: new Date().toLocaleTimeString() }, ...h].slice(0, 20));
     logSpin(alias, bet, pay);
-    setBusy(false);
+  }
+
+  async function safeSpin() {
+    try {
+      await doSpin();
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setBusy(false);
+    }
   }
 
   useEffect(() => {
     if (auto && !busy && gid != null) {
-      const id = setTimeout(doSpin, 1000);
+      const id = setTimeout(safeSpin, 1000);
       return () => clearTimeout(id);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -178,7 +187,7 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
   return (
     <div className="flex w-full max-w-5xl flex-col items-center gap-5 text-white">
       {/* Header bar */}
-      <header className="flex w-full flex-wrap items-center justify-between gap-4 rounded-2xl border border-sky-500/25 bg-[#120a1f]/70 p-4 backdrop-blur-xl shadow-[0_10px_30px_rgba(0,0,0,0.8)]">
+      <header className="flex w-full flex-wrap items-center justify-between gap-4 rounded-2xl border border-sky-500/25 bg-[#263259]/70 p-4 backdrop-blur-xl shadow-[0_10px_30px_rgba(0,0,0,0.8)]">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-tr from-sky-600 to-sky-300 shadow-lg shadow-sky-500/30">
             <span className="text-xl">👑</span>
@@ -262,7 +271,7 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
 
         {/* Console */}
         <div className="mt-4 flex flex-col items-center justify-between gap-4 border-t border-sky-500/20 pt-4 lg:flex-row">
-          <div className="flex items-center gap-3 rounded-2xl border border-sky-500/30 bg-black/60 p-2">
+          <div className="flex flex-wrap items-center justify-center gap-3 rounded-2xl border border-sky-500/30 bg-black/60 p-2">
             <button onClick={() => setBet(Math.max(1, bet - 1))} disabled={busy} className="flex h-10 w-10 items-center justify-center rounded-xl border border-sky-500/40 bg-sky-500/20 text-sky-300 transition active:scale-95 disabled:opacity-40">−</button>
             <div className="min-w-[90px] text-center">
               <span className="block text-[9px] font-semibold uppercase text-sky-400/60">Total Bet</span>
@@ -272,11 +281,11 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
             <button onClick={() => setBet(25)} disabled={busy} className="rounded-xl border border-sky-500/50 bg-sky-600/30 px-3 py-2 text-xs font-bold uppercase tracking-wider text-sky-300">Max</button>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center justify-center gap-3">
             <button onClick={() => setAuto(!auto)} className={`flex min-w-[90px] flex-col items-center gap-1 rounded-2xl border px-4 py-4 text-xs font-bold uppercase tracking-wider transition ${auto ? "border-sky-300 bg-sky-600/50 text-white" : "border-sky-500/40 bg-sky-900/30 text-sky-200"}`}>
               <span className="text-base">🔄</span><span>{auto ? "Stop" : "Auto"}</span>
             </button>
-            <button onClick={() => { setAuto(false); doSpin(); }} disabled={busy}
+            <button onClick={() => { setAuto(false); void safeSpin(); }} disabled={busy}
               className="flex-1 rounded-2xl bg-gradient-to-b from-sky-300 via-sky-400 to-blue-600 px-10 py-4 text-2xl font-black uppercase tracking-widest text-slate-950 shadow-[0_0_30px_rgba(56,189,248,0.5)] transition hover:brightness-110 disabled:opacity-50">
               {busy ? "…" : "Spin ▶"}
             </button>
@@ -299,7 +308,7 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
       {/* Paytable modal */}
       {showPaytable && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-md" onClick={() => setShowPaytable(false)}>
-          <div className="w-full max-w-2xl rounded-3xl border border-sky-500/40 bg-[#120a1f]/90 p-6 backdrop-blur-xl" onClick={(e) => e.stopPropagation()}>
+          <div className="w-full max-w-2xl rounded-3xl border border-sky-500/40 bg-[#263259]/90 p-6 backdrop-blur-xl" onClick={(e) => e.stopPropagation()}>
             <h2 className="mb-6 text-center text-2xl font-bold text-sky-300" style={{ fontFamily: "Cinzel, serif" }}>SYMBOL PAYTABLE</h2>
             <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
               {t.symbols.map((s, i) => (
@@ -317,7 +326,7 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
       {/* History modal */}
       {showHistory && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-md" onClick={() => setShowHistory(false)}>
-          <div className="flex max-h-[80vh] w-full max-w-md flex-col rounded-3xl border border-sky-500/40 bg-[#120a1f]/90 p-6" onClick={(e) => e.stopPropagation()}>
+          <div className="flex max-h-[80vh] w-full max-w-md flex-col rounded-3xl border border-sky-500/40 bg-[#263259]/90 p-6" onClick={(e) => e.stopPropagation()}>
             <h2 className="mb-4 text-center text-2xl font-bold text-sky-300" style={{ fontFamily: "Cinzel, serif" }}>SPIN HISTORY</h2>
             <div className="space-y-2 overflow-y-auto">
               {history.length === 0 && <p className="py-4 text-center text-sm text-sky-200/50">No spins yet.</p>}

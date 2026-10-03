@@ -30,7 +30,7 @@ export default async function Topbar({
   }
 
   return (
-    <header className="sticky top-0 z-10 flex items-center justify-between border-b border-blue-950 bg-[#070d24]/80 px-6 py-4 backdrop-blur">
+    <header className="sticky top-0 z-10 flex items-center justify-between border-b border-blue-950 bg-[#232f5c]/80 px-6 py-4 backdrop-blur">
       <div className="flex items-center gap-2 text-amber-300">
         <Gem className="h-5 w-5" />
         <span className="font-bold">VIP</span>

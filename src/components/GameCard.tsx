@@ -17,7 +17,7 @@ export default function GameCard({ g }: { g: GameCardData }) {
   return (
     <Link
       href={`/play/${alias}`}
-      className="game-card group block overflow-hidden rounded-2xl border border-white/5 bg-[#0b1533] transition hover:-translate-y-1 hover:shadow-[0_8px_30px_rgba(56,189,248,0.25)]"
+      className="game-card group block overflow-hidden rounded-2xl border border-white/5 bg-[#2a3866] transition hover:-translate-y-1 hover:shadow-[0_8px_30px_rgba(56,189,248,0.25)]"
     >
       <div className={`flex h-28 items-center justify-center bg-gradient-to-br ${t.cover} text-5xl transition group-hover:scale-110`}>
         {t.scene}

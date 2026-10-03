@@ -8,9 +8,9 @@ export default async function AppLayout({
   children: React.ReactNode;
 }) {
   const s = await getSession();
-  if (!s) return <div className="min-h-screen bg-[#050b1e] text-white">{children}</div>;
+  if (!s) return <div className="min-h-screen bg-[#1b2447] text-white">{children}</div>;
   return (
-    <div className="flex min-h-screen bg-[#050b1e] text-white">
+    <div className="flex min-h-screen bg-[#1b2447] text-white">
       <Sidebar />
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar email={s.email} uid={s.uid} token={s.token} />

@@ -16,7 +16,7 @@ const items = [
 export default function Sidebar() {
   const path = usePathname();
   return (
-    <aside className="hidden w-60 shrink-0 flex-col border-r border-blue-950 bg-[#070d24] p-5 md:flex">
+    <aside className="hidden w-60 shrink-0 flex-col border-r border-blue-950 bg-[#232f5c] p-5 md:flex">
       <div className="mb-8 flex items-center gap-2">
         <Gem className="h-7 w-7 text-sky-400" />
         <div>
