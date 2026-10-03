@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { themeFor, assetFor } from "@/lib/theme";
+import { themeFor, assetFor, sceneFor } from "@/lib/theme";
 
 export type GameCardData = {
   prov: string;
@@ -17,24 +17,53 @@ function hash(s: string): number {
   return h;
 }
 
+const PACK_LABEL: Record<string, string> = {
+  kemet: "Kemet",
+  classic: "Classic",
+  fruits2: "Fruit 16-bit",
+  pixelfood: "Pixel Food",
+  fantasy: "Fantasy",
+};
+
 export default function GameCard({ g }: { g: GameCardData }) {
-  const theme = themeFor(`${g.prov}/${g.name}`);
-  const assets = assetFor(`${g.prov}/${g.name}`);
-  const cover = assets.images[hash(`${g.prov}/${g.name}`) % assets.images.length];
-  const alias = encodeURIComponent(`${g.prov}/${g.name}`);
+  const key = `${g.prov}/${g.name}`;
+  const theme = themeFor(key);
+  const assets = assetFor(key);
+  const scene = sceneFor(key, g.sx);
+  const cover = assets.images[hash(key) % assets.images.length];
+  const alias = encodeURIComponent(key);
   return (
     <Link
       href={`/play/${alias}`}
       prefetch={false}
-      className="game-card group block overflow-hidden rounded-2xl border border-white/5 bg-[#2a3866] transition hover:-translate-y-1 hover:shadow-[0_8px_30px_rgba(56,189,248,0.25)]"
+      className="game-card group block overflow-hidden rounded-2xl border border-white/5 bg-[#2a3866] transition hover:-translate-y-1"
+      style={{ boxShadow: `0 0 0 1px ${scene.rim}` }}
     >
       <div
-        className={`flex h-28 items-center justify-center bg-gradient-to-br ${theme.cover} transition`}
-        style={assets.bg ? { backgroundImage: `url(${assets.bg})`, backgroundSize: "cover", backgroundPosition: "center" } : undefined}
+        className={`relative flex h-28 items-center justify-center overflow-hidden bg-gradient-to-br ${theme.cover} transition group-hover:brightness-110`}
+        style={{
+          backgroundImage: scene.cabinet,
+          backgroundSize: "cover",
+          backgroundPosition: "center",
+        }}
       >
-        {assets.bg ? null : (
-          <img src={cover} alt="" loading="lazy" decoding="async" className="h-20 w-20 object-contain drop-shadow-lg transition group-hover:scale-110" />
-        )}
+        {/* Ambient halo + vignette so the art reads on every theme */}
+        <span aria-hidden className="pointer-events-none absolute inset-0" style={{ backgroundImage: scene.halo }} />
+        <span aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-10" style={{ background: "linear-gradient(transparent, rgba(3,6,14,0.75))" }} />
+        <img
+          src={cover}
+          alt=""
+          loading="lazy"
+          decoding="async"
+          className="relative h-20 w-20 object-contain drop-shadow-lg transition group-hover:scale-110"
+          style={{ imageRendering: assets.pixelGrid ? "pixelated" : "auto" }}
+        />
+        <span
+          className="absolute right-2 top-2 rounded-md border px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-widest backdrop-blur-sm"
+          style={{ borderColor: scene.rim, color: theme.accent, background: "rgba(3,6,14,0.55)" }}
+        >
+          {PACK_LABEL[assets.kind]}
+        </span>
       </div>
       <div className="p-3">
         <div className="truncate font-bold leading-tight">{g.name}</div>

@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import gsap from "gsap";
 import confetti from "canvas-confetti";
 import { logSpin } from "@/server/actions";
-import { themeFor, assetFor } from "@/lib/theme";
+import { themeFor, assetFor, sceneFor } from "@/lib/theme";
 import Loader from "@/components/Loader";
 
 type Grid = number[][];
@@ -20,11 +20,49 @@ type EngineReply = {
   /** Engine replied with no payload (e.g. a successful collect). */
   empty?: boolean;
   gid: number;
-  game: { grid: Grid; gain: number; bet: number; sel: number };
+  /**
+   * Games built on the generic grid type answer with `{ grid }` only — the
+   * engine's marshaller swallows the sibling bet/sel fields — so they are
+   * optional here and fetched separately when missing.
+   */
+  game: { grid?: unknown; gain?: number; bet?: number; sel?: number };
+  sel?: number;
+  bet?: number;
   wallet: number;
   gain: number;
   wins: Win[];
 };
+
+/**
+ * Normalises the engine's two grid encodings into `number[][]`:
+ * games with a fixed-size grid send arrays, games on the generic grid send
+ * base64 columns (one byte per symbol).
+ */
+function decodeGrid(raw: unknown): Grid {
+  if (!Array.isArray(raw)) return [];
+  const cols: number[][] = [];
+  for (const col of raw) {
+    if (Array.isArray(col)) {
+      cols.push(col.map(Number));
+    } else if (typeof col === "string") {
+      try {
+        cols.push(Array.from(atob(col), (ch) => ch.charCodeAt(0)));
+      } catch {
+        /* malformed column — skip it rather than breaking the whole grid */
+      }
+    }
+  }
+  return cols;
+}
+
+async function enginePost(path: string, body: unknown): Promise<EngineReply | null> {
+  const res = await fetch(`/api/engine/${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return (await res.json().catch(() => null)) as EngineReply | null;
+}
 
 class SoundFX {
   ctx: AudioContext | null = null;
@@ -95,21 +133,57 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
   const [showPaytable, setShowPaytable] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const cellRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const machineRef = useRef<HTMLDivElement | null>(null);
+  // Background art depends on the reel count, which is only known after the first deal.
+  const cols = grid?.length ?? 5;
+  const ready = grid !== null;
+  const scene = useMemo(() => sceneFor(alias, cols), [alias, cols]);
+
+  // Slow drifting glow blobs behind the cabinet (GSAP, theme-coloured).
+  useEffect(() => {
+    const root = machineRef.current;
+    if (!root) return;
+    const ctx = gsap.context(() => {
+      gsap.utils.toArray<HTMLElement>(".aurora-blob").forEach((el, i) => {
+        const dir = i % 2 ? 1 : -1;
+        gsap.to(el, {
+          x: dir * (26 + i * 16),
+          y: -dir * (14 + i * 11),
+          scale: 1.16,
+          opacity: 0.85,
+          duration: 6 + i * 2.4,
+          repeat: -1,
+          yoyo: true,
+          ease: "sine.inOut",
+        });
+      });
+    }, root);
+    return () => ctx.revert();
+  }, [scene, ready]);
+
+  // Big win: slow-rotating light rays behind the payout.
+  useEffect(() => {
+    if (!bigWin) return;
+    const el = document.querySelector<HTMLElement>(".bigwin-rays");
+    if (!el) return;
+    const tw = gsap.to(el, { rotate: 360, duration: 18, repeat: -1, ease: "none" });
+    return () => { tw.kill(); };
+  }, [bigWin]);
 
   useEffect(() => {
     (async () => {
-      const res = await fetch("/api/engine/game/new", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cid: 1, uid, alias }),
-      });
-      const j = (await res.json()) as EngineReply | null;
-      if (!j || j.what || !j.game) { setError(j?.what ?? "engine returned no data"); return; }
+      const j = await enginePost("game/new", { cid: 1, uid, alias });
+      const g = decodeGrid(j?.game?.grid);
+      if (!j || j.what || g.length === 0) { setError(j?.what ?? "engine returned no data"); return; }
       setGid(j.gid);
-      setGrid(j.game.grid);
+      setGrid(g);
       setWallet(j.wallet);
-      setBet(j.game.bet ?? 1);
-      setSel(j.game.sel ?? 0);
+      if (typeof j.game.bet === "number") setBet(j.game.bet);
+      if (typeof j.game.sel === "number") setSel(j.game.sel);
+      // Generic-grid games omit bet/sel from the deal, so read them back.
+      const [sb, bb] = await Promise.all([enginePost("slot/sel/get", { gid: j.gid }), enginePost("slot/bet/get", { gid: j.gid })]);
+      if (typeof sb?.sel === "number" && sb.sel > 0) setSel(sb.sel);
+      if (typeof bb?.bet === "number" && bb.bet > 0) setBet(bb.bet);
     })();
   }, [uid, alias]);
 
@@ -125,20 +199,15 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
     setBusy(true);
     setWins([]);
     if (soundOn) audio.reelStop();
-    const res = await fetch("/api/engine/slot/spin", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ gid, bet }),
-    });
-    const j = (await res.json()) as EngineReply | null;
-    if (!j || j.what || !j.game) { setBusy(false); setAuto(false); setNotice(`⚠️ ${j?.what ?? "engine returned no data"}`); return; }
+    const j = await enginePost("slot/spin", { gid, bet });
+    const finals = decodeGrid(j?.game?.grid);
+    if (!j || j.what || finals.length === 0) { setBusy(false); setAuto(false); setNotice(`⚠️ ${j?.what ?? "engine returned no data"}`); return; }
 
-    const finals: Grid = j.game.grid;
     const flat: number[] = [];
     finals.forEach((col) => col.forEach((v) => flat.push(v)));
-    const htmlFor = (v: number) => assets
-      ? `<img src="${assets.images[v % assets.images.length]}" alt="" class="h-full w-full object-contain p-1" />`
-      : t.symbols[v % t.symbols.length];
+    const px = assets.pixelGrid ? ' style="image-rendering:pixelated"' : "";
+    const htmlFor = (v: number) =>
+      `<img src="${assets.images[v % assets.images.length]}" alt="" class="h-full w-full object-contain p-1"${px} />`;
     await Promise.all(cellRefs.current.map((c, i) =>
       shuffleCell(c, flat[i], 5 + (i % 3), assets.images.length, htmlFor, () => { if (soundOn && Math.random() < 0.3) audio.spinTick(); })
     ));
@@ -146,20 +215,22 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
 
     setGrid(finals);
     setWallet(j.wallet);
-    setGain(j.game.gain ?? 0);
+    setGain(j.game.gain ?? j.gain ?? 0);
+    if (typeof j.game.bet === "number" && j.game.bet > 0) setBet(j.game.bet);
+    if (typeof j.game.sel === "number" && j.game.sel > 0) setSel(j.game.sel);
     const pay = (j.wins ?? []).reduce((a: number, w: Win) => a + w.pay, 0);
     setLastWin(pay);
     setWins(j.wins ?? []);
     if (pay > 0) {
       if (soundOn) audio.win();
       gsap.fromTo(".play-cell", { scale: 1 }, { scale: 1.12, duration: 0.15, repeat: 3, yoyo: true, stagger: 0.02 });
-      if (pay >= bet * 5) {
+      if (pay >= Math.max(stake * 5, 20)) {
         setBigWin(pay);
         try { confetti({ particleCount: 120, spread: 75, origin: { y: 0.6 } }); } catch { /* non-fatal */ }
       }
     }
-    setHistory((h) => [{ bet, win: pay, time: new Date().toLocaleTimeString() }, ...h].slice(0, 20));
-    logSpin(alias, bet, pay);
+    setHistory((h) => [{ bet: stake, win: pay, time: new Date().toLocaleTimeString() }, ...h].slice(0, 20));
+    logSpin(alias, stake, pay);
   }
 
   async function safeSpin() {
@@ -185,12 +256,7 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
     if (busy || gid == null || gain <= 0) return;
     setBusy(true);
     const risk = gain;
-    const res = await fetch("/api/engine/slot/doubleup", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ gid, mult: 2 }),
-    });
-    const j = (await res.json()) as EngineReply | null;
+    const j = await enginePost("slot/doubleup", { gid, mult: 2 });
     if (!j || j.what || j.gain == null) { setNotice(`⚠️ ${j?.what ?? "engine returned no result"}`); setBusy(false); return; }
     const won = (j.gain ?? 0) > risk;
     setGain(j.gain ?? 0);
@@ -205,12 +271,7 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
     if (gid == null) return;
     // Collect only clears the pending gamble state; the engine answers with a
     // bare `null` on success, so an empty reply means "done", not "failed".
-    const res = await fetch("/api/engine/slot/collect", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ gid }),
-    });
-    const j = (await res.json().catch(() => null)) as EngineReply | null;
+    const j = await enginePost("slot/collect", { gid });
     if (j?.what) { setNotice(`⚠️ ${j.what}`); return; }
     if (typeof j?.wallet === "number") setWallet(j.wallet);
     setGain(0);
@@ -220,15 +281,17 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
   if (error) return <p className="mt-20 text-rose-400">{error}</p>;
   if (!grid) return <Loader label={`DEALING ${alias.toUpperCase()}…`} />;
 
-  const cols = grid.length;
   const rows = grid[0]?.length ?? 0;
   // The engine charges the bet per line, so the real stake is bet × active lines.
   const lines = sel || 1;
   const totalBet = bet * lines;
   const maxBet = () => Math.max(1, Math.floor(wallet / lines));
-  const sym = (v: number) => assets
-    ? <img src={assets.images[v % assets.images.length]} alt="" className="h-full w-full object-contain p-1" />
-    : t.symbols[v % t.symbols.length];
+  const sym = (v: number) => <img
+    src={assets.images[v % assets.images.length]}
+    alt=""
+    className="h-full w-full object-contain p-1"
+    style={assets.pixelGrid ? { imageRendering: "pixelated" } : undefined}
+  />;
 
   return (
     <div className="flex w-full max-w-5xl flex-col items-center gap-5 text-white">
@@ -261,28 +324,69 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
         </div>
       </header>
 
-      {/* Machine frame */}
+      {/* Machine frame — themed cabinet with drifting aurora glow, never flat black */}
       <div
-        className="relative w-full overflow-hidden rounded-3xl border-2 border-sky-500/40 bg-gradient-to-b from-slate-900/60 via-slate-950/80 to-black p-3 shadow-2xl sm:p-6"
-        style={assets.bg
-          ? { backgroundImage: `linear-gradient(rgba(3,7,18,0.82), rgba(2,4,10,0.94)), url(${assets.bg})`, backgroundSize: "cover", backgroundPosition: "center" }
-          : undefined}
+        ref={machineRef}
+        className="relative w-full overflow-hidden rounded-3xl border-2 p-3 shadow-2xl sm:p-6"
+        style={{
+          borderColor: scene.rim,
+          backgroundImage: scene.cabinet,
+          backgroundSize: "cover",
+          backgroundPosition: "center",
+          boxShadow: `0 24px 60px rgba(0,0,0,0.75), 0 0 45px ${scene.rim}`,
+        }}
       >
+        {/* Aurora / ambient light layer */}
+        <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
+          {scene.aurora.map((b, i) => (
+            <div
+              key={i}
+              className="aurora-blob absolute rounded-full"
+              style={{
+                left: `${b.x}%`,
+                top: `${b.y}%`,
+                width: `${b.size}%`,
+                height: `${b.size}%`,
+                marginLeft: `-${b.size / 2}%`,
+                marginTop: `-${b.size / 2}%`,
+                background: `radial-gradient(circle, ${b.color} 0%, transparent 68%)`,
+                filter: "blur(34px)",
+                opacity: 0.55,
+              }}
+            />
+          ))}
+          {/* Vignette keeps the reels readable on top of the art */}
+          <div className="absolute inset-0" style={{ background: "radial-gradient(120% 100% at 50% 0%, transparent 35%, rgba(2,4,10,0.85) 100%)" }} />
+        </div>
+
         {/* Marquee */}
-        <div className="mb-3 flex items-center justify-between gap-2 rounded-xl border border-sky-500/40 bg-gradient-to-r from-blue-950/70 via-black to-blue-950/70 p-2 px-4 text-center">
-          <span className="hidden text-xs font-bold uppercase tracking-widest text-sky-200/80 sm:inline">{sel} PAYLINES</span>
+        <div
+          className="relative mb-3 flex items-center justify-between gap-2 rounded-xl border p-2 px-4 text-center"
+          style={{ borderColor: scene.rim, backgroundImage: scene.felt }}
+        >
+          <span className="hidden text-xs font-bold uppercase tracking-widest sm:inline" style={{ color: t.accent }}>{sel} PAYLINES</span>
           {assets.logo ? (
             <img src={assets.logo} alt={alias} className="h-8 w-auto max-w-[70%] object-contain sm:h-11" />
           ) : (
-            <span className="text-sm font-bold tracking-widest text-sky-300 drop-shadow-[0_0_10px_rgba(56,189,248,0.8)] sm:text-base font-cinzel">
+            <span
+              className="text-sm font-bold tracking-widest sm:text-base font-cinzel"
+              style={{ color: t.accent, textShadow: `0 0 14px ${scene.rim}` }}
+            >
               ★ {t.scene} {t.tagline.toUpperCase()} ★
             </span>
           )}
-          <span className="hidden text-xs font-bold uppercase tracking-widest text-sky-200/80 sm:inline">REAL ENGINE</span>
+          <span className="hidden text-xs font-bold uppercase tracking-widest sm:inline" style={{ color: t.accent }}>REAL ENGINE</span>
         </div>
 
-        {/* Reel window */}
-        <div className="relative w-full overflow-hidden rounded-xl border-2 border-sky-500/50 bg-black shadow-[inset_0_0_30px_rgba(0,0,0,0.95),0_0_25px_rgba(56,189,248,0.2)]">
+        {/* Reel window — themed felt + soft top light */}
+        <div
+          className="relative w-full overflow-hidden rounded-xl border-2"
+          style={{
+            borderColor: scene.rim,
+            backgroundImage: scene.felt,
+            boxShadow: `inset 0 0 40px rgba(0,0,0,0.75), 0 0 30px ${scene.rim}`,
+          }}
+        >
           {/* payline SVG overlay */}
           <svg className="pointer-events-none absolute inset-0 z-20 h-full w-full" viewBox="0 0 100 100" preserveAspectRatio="none">
             {wins.map((w, i) => (
@@ -290,13 +394,25 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
                 key={i}
                 points={w.xy.map(([x, y]) => `${((x - 0.5) / cols) * 100},${((y - 0.5) / rows) * 100}`).join(" ")}
                 fill="none"
-                stroke="#fbbf24"
+                stroke={t.accent}
                 strokeWidth="2"
                 strokeLinejoin="round"
-                style={{ filter: "drop-shadow(0 0 4px #f59e0b)" }}
+                style={{ filter: `drop-shadow(0 0 5px ${t.accent})` }}
               />
             ))}
           </svg>
+
+          {/* Pixel-art packs get a faint scanline grid over the felt */}
+          {assets.pixelGrid && (
+            <div
+              aria-hidden
+              className="pointer-events-none absolute inset-0 z-10 opacity-[0.06]"
+              style={{
+                backgroundImage:
+                  "repeating-linear-gradient(0deg, #fff 0 1px, transparent 1px 4px), repeating-linear-gradient(90deg, #fff 0 1px, transparent 1px 4px)",
+              }}
+            />
+          )}
 
           {/* Big win overlay */}
           {bigWin > 0 && (
@@ -304,22 +420,42 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
               {assets.bigwinDecor && (
                 <img src={assets.bigwinDecor} alt="" className="pointer-events-none absolute inset-0 h-full w-full object-cover opacity-60" />
               )}
+              {/* Theme-coloured light rays behind the amount */}
+              <div
+                aria-hidden
+                className="bigwin-rays pointer-events-none absolute left-1/2 top-1/2 h-[190%] w-[190%] -translate-x-1/2 -translate-y-1/2 opacity-70"
+                style={{
+                  backgroundImage: `repeating-conic-gradient(from 0deg, ${t.accent} 0deg 3deg, transparent 3deg 12deg)`,
+                  maskImage: "radial-gradient(circle, #000 12%, transparent 62%)",
+                  WebkitMaskImage: "radial-gradient(circle, #000 12%, transparent 62%)",
+                }}
+              />
               <div className="relative flex flex-col items-center gap-1">
                 {assets.kind === "kemet" && assets.bigwin ? (
                   <img src={assets.bigwin} alt="Big Win" className="w-64 max-w-[75%] sm:w-96" />
                 ) : (
-                  <h2 className="bg-gradient-to-br from-sky-200 via-sky-400 to-blue-600 bg-clip-text text-4xl font-black tracking-wider text-transparent sm:text-6xl font-cinzel">BIG WIN!</h2>
+                  <h2
+                    className="text-4xl font-black tracking-wider font-cinzel sm:text-6xl"
+                    style={{ color: t.accent, textShadow: `0 0 24px ${t.accent}, 0 4px 12px rgba(0,0,0,0.9)` }}
+                  >
+                    BIG WIN!
+                  </h2>
                 )}
                 <p className="text-slate-300">YOU WON</p>
-                <div className="text-4xl font-bold text-amber-300 drop-shadow-[0_0_12px_rgba(251,191,36,0.8)] sm:text-5xl font-cinzel">+{bigWin}</div>
+                <div
+                  className="text-4xl font-bold sm:text-5xl font-cinzel"
+                  style={{ color: "#fde68a", textShadow: "0 0 18px rgba(251,191,36,0.9)" }}
+                >
+                  +{bigWin}
+                </div>
                 <button onClick={() => setBigWin(0)} className="mt-4 rounded-full bg-gradient-to-b from-amber-300 to-yellow-600 px-8 py-3 text-lg font-bold uppercase tracking-wider text-slate-950 shadow-lg transition hover:brightness-110">Collect!</button>
               </div>
             </div>
           )}
 
-          <div className="flex gap-px p-2">
+          <div className="relative flex gap-px p-2">
             {grid.map((col, c) => (
-              <div key={c} className="flex flex-1 flex-col gap-px border-r border-sky-500/15 last:border-r-0">
+              <div key={c} className="flex flex-1 flex-col gap-px" style={{ borderRight: `1px solid ${scene.rim}` }}>
                 {col.map((v, r) => {
                   const idx = c * rows + r;
                   return (
@@ -330,6 +466,7 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
                         backgroundImage: assets.cellFrame ? `url(${assets.cellFrame})` : undefined,
                         backgroundSize: assets.cellFrame ? "100% 100%" : undefined,
                         backgroundRepeat: "no-repeat",
+                        boxShadow: assets.cellFrame ? undefined : `inset 0 0 22px rgba(0,0,0,0.5)`,
                       }}>
                       {sym(v)}
                     </div>
@@ -341,7 +478,7 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
         </div>
 
         {/* Console */}
-        <div className="mt-4 flex flex-col items-center justify-between gap-4 border-t border-sky-500/20 pt-4 lg:flex-row">
+        <div className="relative mt-4 flex flex-col items-center justify-between gap-4 pt-4 lg:flex-row" style={{ borderTop: `1px solid ${scene.rim}` }}>
           <div className="flex flex-wrap items-center justify-center gap-3 rounded-2xl border border-sky-500/30 bg-black/60 p-2">
             <button onClick={() => setBet(Math.max(1, bet - 1))} disabled={busy} className="flex h-10 w-10 items-center justify-center rounded-xl border border-sky-500/40 bg-sky-500/20 text-sky-300 transition active:scale-95 disabled:opacity-40">−</button>
             <div className="min-w-[104px] text-center">
@@ -389,20 +526,24 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
       {/* Paytable modal */}
       {showPaytable && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-md" onClick={() => setShowPaytable(false)}>
-          <div className="w-full max-w-3xl rounded-3xl border border-sky-500/40 bg-[#263259]/90 p-6 backdrop-blur-xl" onClick={(e) => e.stopPropagation()}>
-            <h2 className="mb-6 text-center text-2xl font-bold text-sky-300 font-cinzel">SYMBOL PAYTABLE</h2>
+          <div className="w-full max-w-3xl rounded-3xl border bg-[#263259]/90 p-6 backdrop-blur-xl" style={{ borderColor: scene.rim, backgroundImage: scene.cabinet }} onClick={(e) => e.stopPropagation()}>
+            <h2 className="mb-6 text-center text-2xl font-bold font-cinzel" style={{ color: t.accent }}>SYMBOL PAYTABLE</h2>
             <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-6">
               {assets.images.map((src, i) => (
                 <div key={i}
-                  className="flex flex-col items-center gap-1 rounded-xl border border-sky-500/15 bg-black/50 p-2"
-                  style={assets.cellFrame ? { backgroundImage: `url(${assets.cellFrame})`, backgroundSize: "100% 100%" } : undefined}
+                  className="flex flex-col items-center gap-1 rounded-xl border bg-black/50 p-2"
+                  style={{
+                    borderColor: scene.rim,
+                    backgroundImage: assets.cellFrame ? `url(${assets.cellFrame})` : undefined,
+                    backgroundSize: assets.cellFrame ? "100% 100%" : undefined,
+                  }}
                 >
-                  <img src={src} alt="" className="h-12 w-12 object-contain sm:h-14 sm:w-14" />
+                  <img src={src} alt="" className="h-12 w-12 object-contain sm:h-14 sm:w-14" style={{ imageRendering: assets.pixelGrid ? "pixelated" : "auto" }} />
                   <span className="text-[9px] uppercase text-sky-200/50">{i === assets.wildIndex ? "Wild" : `Symbol ${i + 1}`}</span>
                 </div>
               ))}
             </div>
-            <p className="mt-6 border-t border-sky-500/30 pt-4 text-xs text-sky-200/60">Engine-powered real slot math. Wins pay left-to-right on active lines.</p>
+            <p className="mt-6 border-t pt-4 text-xs text-sky-200/60" style={{ borderColor: scene.rim }}>Engine-powered real slot math. Wins pay left-to-right on active lines.</p>
           </div>
         </div>
       )}

@@ -11,17 +11,27 @@ cd "$(dirname "$0")/.."
 
 K="public/assets/RSG Slot Asset Pack - Crowns of Kemet - Free/RSG-Slot-Asset-Pack-Crowns-of-Kemet-Free/PNG"
 C="public/assets/ville_seppanen_slots_symbols_asset_pack"
+F2="public/assets/Fruits Asset 2/Fruits Asset"
+F2O="public/assets/Fruits Asset 2/Fruits Asset/Black Outline"
+PF="public/assets/Free_pixel_food_16x16/Icons"
+XY="public/assets/Pixel Fantasy Slot Machine/Slot Machine"
 OUT="public/gfx"
 
-if [ ! -d "$K" ] || [ ! -d "$C" ]; then
-  echo "error: original asset packs not found under public/assets" >&2
-  exit 1
-fi
+for d in "$K" "$C" "$F2" "$PF" "$XY"; do
+  [ -d "$d" ] || { echo "error: missing source pack: $d" >&2; exit 1; }
+done
 
-mkdir -p "$OUT/sym" "$OUT/classic"
+mkdir -p "$OUT/sym" "$OUT/classic" "$OUT/fruits2" "$OUT/pixelfood" "$OUT/fantasy"
 
 conv() {
   magick "$1" -auto-orient -strip -resize "$2" -quality 80 -define webp:method=6 "$3"
+  printf '  %-46s %s\n' "$3" "$(du -h "$3" | cut -f1)"
+}
+
+# pixel art: nearest-neighbour upscale + lossless so the pixels stay crisp
+convpx() {
+  magick "$1" -auto-orient -strip -filter point -resize "$2" -quality 100 \
+    -define webp:lossless=true -define webp:method=6 "$3"
   printf '  %-46s %s\n' "$3" "$(du -h "$3" | cut -f1)"
 }
 
@@ -42,6 +52,28 @@ echo "Classic symbols:"
 for n in apple bar bell cherry clover coin diamond die \
          grapefruit heart horseshoe lemon orange plum seven watermelon; do
   conv "$C/$n.png" 192x "$OUT/classic/$n.webp"
+done
+
+echo "Fruits Asset 2 (outlined reel symbols + plain accents):"
+for i in 01 02 03 04 05 06 07 08 09 10 11 12 13; do
+  convpx "$F2O/$i.png" 800% "$OUT/fruits2/sym-$i.webp"
+  convpx "$F2/$i.png"  800% "$OUT/fruits2/plain-$i.webp"
+done
+
+echo "Free pixel art foods (fruit icons):"
+for n in fruit_apple fruit_apple-slice fruit_banana fruit_blueberry \
+         fruit_cherry fruit_grape_red fruit_greengrape fruit_kiwi \
+         fruit_lemon fruit_lime fruit_orange fruit_orange_slice \
+         fruit_peach fruit_strawberry fruit_watermelon fruit_watermelon_slice; do
+  convpx "$PF/$n.png" 800% "$OUT/pixelfood/$n.webp"
+done
+
+echo "Pixel Fantasy Slot Machine:"
+for i in 1 2 3 4 5; do
+  convpx "$XY/slot-machine$i.png" 100% "$OUT/fantasy/machine-$i.webp"
+done
+for i in 1 2 3 4; do
+  convpx "$XY/slot-symbol$i.png" 300% "$OUT/fantasy/symbol-$i.webp"
 done
 
 echo
