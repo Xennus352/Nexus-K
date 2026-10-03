@@ -44,3 +44,6 @@ next-env.d.ts
 
 # prisma generated client
 src/generated/
+
+# slotopol game engine build
+engine/

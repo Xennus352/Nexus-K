@@ -3,7 +3,19 @@
 import bcrypt from "bcryptjs";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
-import { setSession, clearSession, getSessionUserId } from "@/lib/session";
+import { setSession, clearSession } from "@/lib/session";
+
+const ENGINE = process.env.SLOTOPOL_URL ?? "http://localhost:8080";
+
+async function engineSignin(email: string, secret: string) {
+  const res = await fetch(`${ENGINE}/signin`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, secret }),
+  });
+  if (!res.ok) return null;
+  return (await res.json()) as { uid: number; access: string };
+}
 
 export async function signup(formData: FormData) {
   const email = String(formData.get("email") ?? "").trim().toLowerCase();
@@ -11,24 +23,34 @@ export async function signup(formData: FormData) {
   if (!email || password.length < 6) {
     redirect("/?error=Invalid+email+or+password+(min+6+chars)");
   }
-  const exists = await prisma.user.findUnique({ where: { email } });
-  if (exists) redirect("/?error=Email+already+registered");
-  const user = await prisma.user.create({
-    data: { email, passwordHash: await bcrypt.hash(password, 10) },
+  const res = await fetch(`${ENGINE}/signup`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, secret: password, name: email.split("@")[0] }),
   });
-  await setSession(user.id);
-  redirect("/");
+  if (!res.ok) redirect("/?error=Signup+failed+(email+may+exist)");
+  const { uid } = (await res.json()) as { uid: number };
+  const auth = await engineSignin(email, password);
+  if (!auth) redirect("/?error=Signup+ok+but+signin+failed");
+  await prisma.user.create({
+    data: { email, passwordHash: await bcrypt.hash(password, 10), engineUid: uid },
+  });
+  await setSession(uid, auth.access, email);
+  redirect("/lobby");
 }
 
 export async function login(formData: FormData) {
   const email = String(formData.get("email") ?? "").trim().toLowerCase();
   const password = String(formData.get("password") ?? "");
-  const user = await prisma.user.findUnique({ where: { email } });
-  if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
-    redirect("/?error=Invalid+credentials");
-  }
-  await setSession(user.id);
-  redirect("/");
+  const auth = await engineSignin(email, password);
+  if (!auth) redirect("/?error=Invalid+credentials");
+  await prisma.user.upsert({
+    where: { email },
+    update: { engineUid: auth.uid },
+    create: { email, passwordHash: await bcrypt.hash(password, 10), engineUid: auth.uid },
+  });
+  await setSession(auth.uid, auth.access, email);
+  redirect("/lobby");
 }
 
 export async function logout() {
@@ -36,63 +58,11 @@ export async function logout() {
   redirect("/");
 }
 
-const SYMBOLS = ["cherry", "lemon", "orange", "star", "diamond", "bell", "seven"] as const;
-const WEIGHTS = [28, 26, 22, 14, 6, 3, 1];
-const PAY: Record<string, number> = {
-  cherry: 2, lemon: 3, orange: 5, star: 10, diamond: 25, bell: 50, seven: 100,
-};
-
-function rollSymbol(): string {
-  const total = WEIGHTS.reduce((a, b) => a + b, 0);
-  let r = Math.random() * total;
-  for (let i = 0; i < SYMBOLS.length; i++) {
-    r -= WEIGHTS[i];
-    if (r <= 0) return SYMBOLS[i];
-  }
-  return SYMBOLS[0];
-}
-
-export type SpinResult = {
-  ok: boolean;
-  error?: string;
-  grid?: string[][]; // 3 rows x 3 cols
-  win?: number;
-  balance?: number;
-};
-
-export async function spin(betCents: number): Promise<SpinResult> {
-  const userId = await getSessionUserId();
-  if (!userId) return { ok: false, error: "Not signed in" };
-  if (!Number.isInteger(betCents) || betCents <= 0) return { ok: false, error: "Bad bet" };
-
-  const user = await prisma.user.findUnique({ where: { id: userId } });
-  if (!user) return { ok: false, error: "User not found" };
-  if (user.balance < betCents) return { ok: false, error: "Insufficient balance" };
-
-  // 3 columns x 3 rows
-  const grid: string[][] = [];
-  for (let r = 0; r < 3; r++) {
-    grid.push([rollSymbol(), rollSymbol(), rollSymbol()]);
-  }
-
-  // win: any row fully matching a symbol
-  let win = 0;
-  for (const row of grid) {
-    if (row[0] === row[1] && row[1] === row[2]) {
-      win += betCents * PAY[row[0]];
-    }
-  }
-  // consolation: any two matching on middle row pays bet/2
-  const mid = grid[1];
-  if (win === 0 && (mid[0] === mid[1] || mid[1] === mid[2] || mid[0] === mid[2])) {
-    win += Math.floor(betCents / 2);
-  }
-
-  const balance = user.balance - betCents + win;
-  await prisma.user.update({ where: { id: userId }, data: { balance } });
-  await prisma.spin.create({
-    data: { userId, bet: betCents, win, symbols: grid.flat() },
-  });
-
-  return { ok: true, grid, win, balance };
+export async function logSpin(alias: string, bet: number, win: number) {
+  const { getSession } = await import("@/lib/session");
+  const s = await getSession();
+  if (!s) return;
+  const user = await prisma.user.findUnique({ where: { email: s.email } });
+  if (!user) return;
+  await prisma.spin.create({ data: { userId: user.id, alias, bet, win } });
 }

@@ -1,41 +1,31 @@
-import { createHmac, timingSafeEqual } from "crypto";
 import { cookies } from "next/headers";
 
-const COOKIE = "nk_session";
-
-function sign(value: string) {
-  return createHmac("sha256", process.env.SESSION_SECRET ?? "dev-secret")
-    .update(value)
-    .digest("hex");
-}
-
-export async function setSession(userId: string) {
+export async function setSession(userId: number, token: string, email: string) {
   const store = await cookies();
-  store.set(COOKIE, `${userId}.${sign(userId)}`, {
+  const opts = {
     httpOnly: true,
-    sameSite: "lax",
+    sameSite: "lax" as const,
     secure: process.env.NODE_ENV === "production",
     path: "/",
-    maxAge: 60 * 60 * 24 * 7,
-  });
+    maxAge: 60 * 60 * 24,
+  };
+  store.set("nk_token", token, opts);
+  store.set("nk_uid", String(userId), opts);
+  store.set("nk_email", email, opts);
 }
 
-export async function getSessionUserId(): Promise<string | null> {
+export async function getSession() {
   const store = await cookies();
-  const raw = store.get(COOKIE)?.value;
-  if (!raw) return null;
-  const [userId, sig] = raw.split(".");
-  if (!userId || !sig) return null;
-  const expected = sign(userId);
-  try {
-    if (timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) return userId;
-  } catch {
-    /* length mismatch */
-  }
-  return null;
+  const token = store.get("nk_token")?.value;
+  const uid = store.get("nk_uid")?.value;
+  const email = store.get("nk_email")?.value;
+  if (!token || !uid || !email) return null;
+  return { token, uid: Number(uid), email };
 }
 
 export async function clearSession() {
   const store = await cookies();
-  store.delete(COOKIE);
+  store.delete("nk_token");
+  store.delete("nk_uid");
+  store.delete("nk_email");
 }

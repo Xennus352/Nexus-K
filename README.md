@@ -19,8 +19,15 @@ Inspired by these open-source projects:
 pnpm install
 cp .env.example .env   # fill in your MongoDB credentials
 pnpm db:push           # sync Prisma schema to MongoDB
+
+# game engine (slotopol server, Go)
+cd engine && ./slotopol web &   # listens on :8080
+cd ..
+
 pnpm dev
 ```
+
+The `engine/` directory contains a Go build of [slotopol/server](https://github.com/slotopol/server) — the real game math for ~350 slot games (Novomatic, NetEnt, CT Interactive, and more). The Next.js UI talks to it through an authenticated proxy at `/api/engine/*`. If you need to rebuild the engine: install Go, `cd engine && go build -o slotopol .`.
 
 ## Scripts
 
