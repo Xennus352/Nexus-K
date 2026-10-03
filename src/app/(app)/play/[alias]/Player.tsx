@@ -4,13 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import gsap from "gsap";
 import { logSpin } from "@/server/actions";
-
-const GLYPHS = ["🍒", "🍋", "🍊", "⭐", "💎", "🔔", "7️⃣", "🍇", "♠️", "❤️", "🍀", "👑", "🔔", "🃏", "🌴", "🐬"];
-const COLORS = [
-  "bg-blue-950/60 border-sky-500/30", "bg-indigo-950/60 border-sky-500/30",
-  "bg-sky-950/60 border-sky-500/30", "bg-blue-900/50 border-sky-400/30",
-  "bg-cyan-950/60 border-sky-500/30", "bg-slate-900/60 border-blue-500/30",
-];
+import { themeFor } from "@/lib/theme";
 
 type Grid = number[][];
 
@@ -77,12 +71,13 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
 
   async function shuffle(cell: HTMLDivElement | null, final: number, steps: number) {
     if (!cell) return;
+    const t = themeFor(alias);
     for (let i = 0; i < steps; i++) {
-      cell.textContent = GLYPHS[Math.floor(Math.random() * GLYPHS.length)];
+      cell.textContent = t.symbols[Math.floor(Math.random() * t.symbols.length)];
       await gsap.fromTo(cell, { y: -16 }, { y: 0, duration: 0.07, ease: "power1.out" });
     }
-    cell.textContent = GLYPHS[final % GLYPHS.length];
-    cell.className = `play-cell flex h-16 w-16 items-center justify-center rounded-xl border text-3xl bg-blue-950/60 border-sky-500/30`;
+    cell.textContent = t.symbols[final % t.symbols.length];
+    cell.className = "play-cell flex h-16 w-16 items-center justify-center rounded-xl border border-white/10 bg-black/50 text-3xl";
     await gsap.fromTo(cell, { y: -22, scale: 1.2 }, { y: 0, scale: 1, duration: 0.3, ease: "back.out(2)" });
   }
 
@@ -118,22 +113,28 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
   if (!grid) return <p className="mt-20 text-slate-400">Loading {alias}…</p>;
 
   const rows = grid[0]?.length ?? 0;
+  const t = themeFor(alias);
+  const sym = (v: number) => t.symbols[v % t.symbols.length];
 
   return (
     <div className="flex flex-col items-center gap-6">
       <div className="flex w-full max-w-3xl items-center justify-between">
         <Link href="/lobby" className="text-sky-400 underline">← Lobby</Link>
-        <h1 className="text-2xl font-black text-sky-200">{alias}</h1>
-        <div className="rounded-lg border border-sky-500/30 bg-sky-950/40 px-3 py-1 font-mono text-sky-200">
+        <h1 className={`text-2xl font-black ${t.accentText}`}>{alias}</h1>
+        <div className="rounded-lg border border-white/10 bg-[#0b1533] px-3 py-1 font-mono text-slate-200">
           💎 {wallet}
         </div>
       </div>
 
-      <div className="rounded-3xl border-2 border-sky-500/40 bg-gradient-to-b from-[#0b173d] to-[#060a1c] p-6 shadow-[0_0_80px_rgba(56,189,248,0.35)]">
-        <div className="mb-4 text-center text-xl font-black tracking-[0.5em] text-amber-400">
-          JACKPOT
+      <div
+        className={`rounded-3xl border-2 bg-gradient-to-b ${t.cover} p-6`}
+        style={{ borderColor: t.accent, boxShadow: `0 0 80px ${t.accent}55` }}
+      >
+        <div className="mb-1 text-center text-5xl">{t.scene}</div>
+        <div className="mb-4 text-center text-xs tracking-[0.5em]" style={{ color: t.accent }}>
+          {t.tagline.toUpperCase()}
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 rounded-2xl bg-black/40 p-3">
           {grid.map((col, c) => (
             <div key={c} className="flex flex-col gap-2">
               {col.map((v, r) => {
@@ -142,9 +143,9 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
                   <div
                     key={r}
                     ref={(el) => { cellRefs.current[idx] = el; }}
-                    className={`play-cell flex h-16 w-16 items-center justify-center rounded-xl border text-3xl ${COLORS[v % COLORS.length]}`}
+                    className="play-cell flex h-16 w-16 items-center justify-center rounded-xl border border-white/10 bg-black/50 text-3xl"
                   >
-                    {GLYPHS[v % GLYPHS.length]}
+                    {sym(v)}
                   </div>
                 );
               })}
