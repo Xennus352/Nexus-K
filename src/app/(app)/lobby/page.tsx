@@ -52,9 +52,9 @@ export default async function Lobby({
           name="q"
           defaultValue={q}
           placeholder="🔍 Search games…"
-          className="rounded-xl border border-white/10 bg-[#2a3866] px-4 py-2.5 outline-none focus:border-sky-500"
+          className="rounded-xl border border-white/10 bg-[#35478a] px-4 py-2.5 outline-none focus:border-sky-500"
         />
-        <select name="prov" defaultValue={prov ?? ""} className="rounded-xl border border-white/10 bg-[#2a3866] px-4 py-2.5">
+        <select name="prov" defaultValue={prov ?? ""} className="rounded-xl border border-white/10 bg-[#35478a] px-4 py-2.5">
           <option value="">All providers</option>
           {providers.map((p) => (
             <option key={p} value={p}>{p}</option>

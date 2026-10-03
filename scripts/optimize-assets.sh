@@ -15,13 +15,17 @@ F2="public/assets/Fruits Asset 2/Fruits Asset"
 F2O="public/assets/Fruits Asset 2/Fruits Asset/Black Outline"
 PF="public/assets/Free_pixel_food_16x16/Icons"
 XY="public/assets/Pixel Fantasy Slot Machine/Slot Machine"
+BT="public/assets/buttons"
+SL="public/assets/slots"
+TM="public/assets/times"
 OUT="public/gfx"
 
-for d in "$K" "$C" "$F2" "$PF" "$XY"; do
+for d in "$K" "$C" "$F2" "$PF" "$XY" "$BT" "$SL" "$TM"; do
   [ -d "$d" ] || { echo "error: missing source pack: $d" >&2; exit 1; }
 done
 
-mkdir -p "$OUT/sym" "$OUT/classic" "$OUT/fruits2" "$OUT/pixelfood" "$OUT/fantasy"
+mkdir -p "$OUT/sym" "$OUT/classic" "$OUT/fruits2" "$OUT/pixelfood" "$OUT/fantasy" \
+         "$OUT/lux" "$OUT/badge" "$OUT/btn" "$OUT/mult"
 
 conv() {
   magick "$1" -auto-orient -strip -resize "$2" -quality 80 -define webp:method=6 "$3"
@@ -75,6 +79,52 @@ done
 for i in 1 2 3 4; do
   convpx "$XY/slot-symbol$i.png" 300% "$OUT/fantasy/symbol-$i.webp"
 done
+
+# The three newer packs are named by hand, so they are exported by name:
+#   slots  -> lux/sym-<name>.webp        reel symbols (jocker = wild)
+#   times  -> mult/m<n>.webp             gamble multipliers, badge/<name>.webp feature marks
+#   buttons-> btn/round-NN|wide-NN.webp  compact vs wide button plates
+img_w() { magick identify -format "%w" "$1"; }
+
+slug() { printf '%s' "$1" | tr '[:upper:] ' '[:lower:]-' | tr -cd 'a-z0-9-'; }
+
+is_squareish() {
+  local w h
+  w=$(img_w "$1")
+  h=$(magick identify -format "%h" "$1")
+  [ $((w * 100 / (h > 0 ? h : 1))) -le 130 ]
+}
+
+echo "Slots pack (luxury reel symbols):"
+while IFS= read -r -d '' f; do
+  name=$(basename "$f" .png)
+  conv "$f" 288x "$OUT/lux/$(slug "$name").webp"
+done < <(find "$SL" -type f -name '*.png' -print0 | sort -z)
+
+echo "Multipliers + feature badges:"
+while IFS= read -r -d '' f; do
+  name=$(basename "$f" .png)
+  slugname=$(slug "$name")
+  case "$slugname" in
+    [0-9]*x*) conv "$f" 400x "$OUT/mult/$slugname.webp" ;;
+    *)        conv "$f" 320x "$OUT/badge/$slugname.webp" ;;
+  esac
+done < <(find "$TM" -type f -name '*.png' -print0 | sort -z)
+
+echo "Buttons (round + wide):"
+round_n=0
+wide_n=0
+while IFS= read -r -d '' f; do
+  if is_squareish "$f"; then
+    round_n=$((round_n + 1))
+    conv "$f" 320x "$OUT/btn/round-$(printf '%02d' "$round_n").webp"
+  else
+    wide_n=$((wide_n + 1))
+    conv "$f" 640x "$OUT/btn/wide-$(printf '%02d' "$wide_n").webp"
+  fi
+done < <(find "$BT" -type f -name '*.png' -print0 | sort -z)
+
+echo "counts: buttons=$((round_n + wide_n)) (round=$round_n wide=$wide_n)"
 
 echo
 echo "total: $(du -sh "$OUT" | cut -f1)"

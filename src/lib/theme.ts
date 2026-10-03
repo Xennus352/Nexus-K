@@ -164,8 +164,12 @@ const KEMET = "/gfx";
 const FRUITS2 = "/gfx/fruits2";
 const PIXELFOOD = "/gfx/pixelfood";
 const FANTASY = "/gfx/fantasy";
+const LUX = "/gfx/lux";
+const BTN = "/gfx/btn";
+const MULT = "/gfx/mult";
+const BADGE = "/gfx/badge";
 
-export type PackKind = "kemet" | "classic" | "fruits2" | "pixelfood" | "fantasy";
+export type PackKind = "kemet" | "classic" | "fruits2" | "pixelfood" | "fantasy" | "lux";
 
 export type AssetPack = {
   kind: PackKind;
@@ -214,6 +218,38 @@ const PIXELFOOD_IMAGES = [
 // "Pixel Fantasy Slot Machine" — 4 symbols + cabinet art.
 const FANTASY_IMAGES = [1, 2, 3, 4].map((i) => `${FANTASY}/symbol-${i}.webp`);
 
+// Hand-named classic pack: 28 high-res symbols, `jocker` last (the wild).
+const LUX_NAMES = [
+  "a2", "k", "q", "j", "7", "72", "bar", "barborder", "bell", "crown", "coin",
+  "dollarcollection", "omega", "a3dots", "diamond", "ruby", "blue-ruby",
+  "green-ruby", "yellow-ruby", "reddiamond", "clover", "redberry", "violetmango",
+  "grape", "orange", "lime", "watermelon", "jocker",
+];
+const LUX_IMAGES = LUX_NAMES.map((n) => `${LUX}/${n}.webp`);
+const LUX_WILD = LUX_NAMES.indexOf("jocker");
+
+// Button plates exported from public/assets/buttons: square-ish art is compact
+// (used for the -/+ and icon controls), wide art is used for the big actions.
+const BTN_ROUND = [1, 2, 3].map((i) => `${BTN}/round-${String(i).padStart(2, "0")}.webp`);
+const BTN_WIDE = [1, 2, 3, 4, 5, 6].map((i) => `${BTN}/wide-${String(i).padStart(2, "0")}.webp`);
+
+/** Gamble multipliers the engine accepts (binding: gt=1, lte=10) -> badge art. */
+export const MULTIPLIERS = [2, 5, 10] as const;
+export type Multiplier = (typeof MULTIPLIERS)[number];
+
+export function multArt(m: number): string | undefined {
+  return `${MULT}/${m}x.webp`;
+}
+
+/** Feature marks for the paytable and win banners. */
+export const BADGE_ART = {
+  wild: `${BADGE}/wild.webp`,
+  scatter: `${BADGE}/scatter.webp`,
+  jackpot: `${BADGE}/jackpot.webp`,
+  bonus: `${BADGE}/bonus.webp`,
+  bigwin: `${BADGE}/big-win.webp`,
+} as const;
+
 const KEMET_PACK: AssetPack = {
   kind: "kemet",
   images: KEMET_IMAGES,
@@ -238,9 +274,16 @@ const PIXELFOOD_PACK: AssetPack = {
 const FANTASY_PACK: AssetPack = {
   kind: "fantasy", images: FANTASY_IMAGES, pixelGrid: true,
 };
+const LUX_PACK: AssetPack = {
+  kind: "lux", images: LUX_IMAGES, wildIndex: LUX_WILD,
+};
 
 const KEMET_KEYWORDS = ["egypt", "pyramid", "pharaoh", "cleopatra", "anubis", "kemet", "scarab", "sphinx", "mummy"];
 const FANTASY_KEYWORDS = ["pixel", "8bit", "8-bit", "retro", "arcade", "fantasy"];
+const LUX_KEYWORDS = [
+  "lucky", "luxur", "deluxe", "mega", "jackpot", "diamond", "crown", "royal",
+  "gold", "coin", "reel", "bar", "bell", "cherry", "clover", "horseshoe",
+];
 const FRUIT_KEYWORDS = [
   "fruit", "fruits", "juice", "juicy", "cherry", "lemon", "melon", "berry", "grape",
   "peach", "plum", "apple", "orange", "banana", "straw", "kiwi", "lime", "candy", "sweet", "sugar",
@@ -253,20 +296,55 @@ const FRUIT_KEYWORDS = [
 export function assetFor(alias: string): AssetPack {
   const n = alias.toLowerCase();
   if (KEMET_KEYWORDS.some((k) => n.includes(k))) return KEMET_PACK;
+  if (LUX_KEYWORDS.some((k) => n.includes(k))) return LUX_PACK;
   if (FANTASY_KEYWORDS.some((k) => n.includes(k))) return FANTASY_PACK;
   if (FRUIT_KEYWORDS.some((k) => n.includes(k))) {
     return hash(alias) % 2 === 0 ? FRUITS2_PACK : PIXELFOOD_PACK;
   }
   // Rotate the remaining packs by name hash for variety.
-  const rotation = [CLASSIC_PACK, FRUITS2_PACK, PIXELFOOD_PACK, FANTASY_PACK];
+  const rotation = [CLASSIC_PACK, FRUITS2_PACK, PIXELFOOD_PACK, FANTASY_PACK, LUX_PACK];
   return rotation[hash(alias) % rotation.length];
+}
+
+export type ButtonSet = {
+  spin: string;
+  auto: string;
+  keep: string;
+  minus: string;
+  plus: string;
+  menu: string;
+};
+
+/** Deterministic plate art: a game keeps the same button look, games differ. */
+export function buttonsFor(alias: string): ButtonSet {
+  const h = hash(alias);
+  const wide = <K extends keyof ButtonSet>(salt: number) =>
+    BTN_WIDE[(h + salt) % BTN_WIDE.length];
+  const round = (salt: number) => BTN_ROUND[(h + salt) % BTN_ROUND.length];
+  return {
+    spin: wide(0),
+    auto: wide(1),
+    keep: wide(2),
+    minus: round(0),
+    plus: round(1),
+    menu: round(2),
+  };
 }
 
 /* ------------------------------------------------------------------ *
  * Backgrounds + effects
  * ------------------------------------------------------------------ */
 
+export type SceneStyle =
+  /** Golden Luxury / VIP Lounge — gold + obsidian, art deco, warm spotlights. */
+  | "vip"
+  /** Vibrant Fantasy — volcanic abyss, embers, hot rim light. */
+  | "volcano"
+  /** The game's own theme palette, brightened. */
+  | "theme";
+
 export type Scene = {
+  style: SceneStyle;
   /** Real backdrop art when the pack ships one. */
   image?: string;
   /** Cabinet background (CSS). */
@@ -279,6 +357,16 @@ export type Scene = {
   aurora: { color: string; size: number; x: number; y: number }[];
   /** Frame/border colour for the machine. */
   rim: string;
+  /** Rising ember particles (volcano scenes only). */
+  embers: { x: number; y: number; size: number; delay: number }[];
+  /** Art-deco filigree overlay (VIP scenes only), as a CSS background. */
+  deco?: string;
+  /** Art-deco border frame stretched over the whole cabinet (VIP scenes only). */
+  decoFrame?: string;
+  /** Tile size of the filigree pattern, in CSS pixels. */
+  decoSize?: number;
+  /** Where the filigree is strongest (CSS mask). */
+  decoMask?: string;
 };
 
 function rgba(hex: string, alpha: number): string {
@@ -290,40 +378,190 @@ function rgba(hex: string, alpha: number): string {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
+const VIP_KEYWORDS = [
+  "luck", "lucky", "irish", "clover", "leprechaun", "gold", "golden", "coin",
+  "coins", "diamond", "jewel", "jewels", "ruby", "sapphire", "emerald", "royal",
+  "king", "queen", "crown", "champagne", "vip", "777", "rich", "luxur",
+  "fortune", "treasure", "mega", "wealth", "cash", "pot", "gems", "money", "cash",
+];
+
+const VOLCANO_KEYWORDS = [
+  "fire", "flame", "dragon", "phoenix", "burning", "inferno", "volcano", "lava",
+  "magic", "magical", "wizard", "witch", "spell", "potion", "sorcerer", "mystic",
+  "arcana", "tarot", "zeus", "olympus", "greek", "myth", "mythic", "hero", "troy",
+  "medusa", "quest", "adventure", "titan", "thunder", "storm", "quest", "wild-west",
+];
+
+/** Art-deco filigree for the VIP Lounge wall (inline SVG, no extra request). */
+const DECO_VIP_SVG =
+  `<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200' viewBox='0 0 200 200'>` +
+  `<g fill='none' stroke='#ffe3ab' stroke-opacity='0.34' stroke-width='1.3' stroke-linejoin='round'>` +
+  `<path d='M100 4 L124 44 L168 20 L154 72 L196 66 L156 100 L196 134 L154 128 L168 180 L124 156 ` +
+  `L100 196 L76 156 L32 180 L46 128 L4 134 L44 100 L4 66 L46 72 L32 20 L76 44 Z'/>` +
+  `<circle cx='100' cy='100' r='64'/><circle cx='100' cy='100' r='40'/>` +
+  `<path d='M100 74 L112 100 L100 126 L88 100 Z' stroke-opacity='0.5'/>` +
+  `</g></svg>`;
+
+/** Single-stretch art-deco frame drawn around the whole cabinet. */
+const DECO_FRAME_SVG =
+  `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1000 1000' preserveAspectRatio='none'>` +
+  `<g fill='none' stroke='#ffe3ab' stroke-linecap='round'>` +
+  `<rect x='18' y='18' width='964' height='964' stroke-opacity='0.40' stroke-width='2.5'/>` +
+  `<rect x='30' y='30' width='940' height='940' stroke-opacity='0.22' stroke-width='1.2'/>` +
+  `<g stroke-opacity='0.34' stroke-width='2.5'>` +
+  `<path d='M18 120 Q120 120 120 18'/><path d='M982 120 Q880 120 880 18'/>` +
+  `<path d='M18 880 Q120 880 120 982'/><path d='M982 880 Q880 880 880 982'/>` +
+  `<path d='M500 18 L516 34 L500 50 L484 34 Z'/><path d='M500 950 L516 966 L500 982 L484 966 Z'/>` +
+  `</g></g></svg>`;
+
+/** Glowing lava veins for the volcanic abyss (inline SVG, no extra request). */
+const DECO_VOLCANO_SVG =
+  `<svg xmlns='http://www.w3.org/2000/svg' width='260' height='260' viewBox='0 0 260 260'>` +
+  `<g fill='none' stroke='#ff9a3c' stroke-opacity='0.30' stroke-width='1.4' stroke-linecap='round'>` +
+  `<path d='M-10 40 L40 62 L74 40 L118 78 L160 52 L204 88 L270 60'/>` +
+  `<path d='M20 130 L70 108 L110 140 L156 116 L206 150 L268 122'/>` +
+  `<path d='M-10 210 L52 232 L96 198 L150 236 L200 206 L260 240'/>` +
+  `<path d='M74 40 L70 108 M160 52 L156 116 M110 140 L96 198 M200 206 L206 150'/>` +
+  `</g></svg>`;
+
+/** Percent-encodes an SVG document so the browser accepts it inside url(). */
+function svgUrl(svg: string): string {
+  return (
+    'url("data:image/svg+xml,' +
+    svg.replace(/</g, "%3C").replace(/>/g, "%3E").replace(/#/g, "%23").replace(/"/g, "%22") +
+    '")'
+  );
+}
+
+const DECO_VIP = svgUrl(DECO_VIP_SVG);
+const DECO_FRAME = svgUrl(DECO_FRAME_SVG);
+const DECO_VOLCANO = svgUrl(DECO_VOLCANO_SVG);
+
 /** Builds the cabinet/reel background for a game from its theme + pack art. */
 export function sceneFor(alias: string, cols: number): Scene {
   const t = themeFor(alias);
   const pack = assetFor(alias);
   const h = hash(alias);
   const a = t.accent;
+  const n = alias.toLowerCase();
 
   // Egyptian cabinet art; the fantasy cabinets are used as a dimmed backdrop.
   let image: string | undefined;
   if (pack.kind === "kemet" && pack.bg) image = pack.bg;
   else if (pack.kind === "fantasy") image = `${FANTASY}/machine-${cols >= 4 ? 4 : 1}.webp`;
 
-  const cabinet = image
-    ? `linear-gradient(rgba(3,6,14,0.80), rgba(2,3,9,0.93)), url(${image})`
-    : `radial-gradient(120% 90% at 50% -10%, ${rgba(t.bgA, 0.95)} 0%, ${t.bgB} 62%, #04060d 100%)`;
+  // Egyptian art already ships a full room, so it keeps the theme treatment.
+  const isArt = Boolean(image);
+  const wantsVip = !isArt && VIP_KEYWORDS.some((k) => n.includes(k));
+  // Keywords first, then a hash share so the fiery art reaches beyond the
+  // obviously-named titles without landing on two games alike.
+  const wantsVolcano =
+    !isArt &&
+    !wantsVip &&
+    (VOLCANO_KEYWORDS.some((k) => n.includes(k)) || h % 7 === 0);
 
-  const felt =
-    `radial-gradient(90% 70% at 50% 0%, ${rgba(a, 0.22)} 0%, transparent 60%),` +
-    `linear-gradient(180deg, ${rgba(t.bgB, 0.96)} 0%, #05070f 55%, ${rgba(t.bgA, 0.55)} 100%)`;
+  const style: SceneStyle = wantsVip ? "vip" : wantsVolcano ? "volcano" : "theme";
+
+  const spotlight = `radial-gradient(54% 38% at 50% -8%, ${rgba(a, 0.70)} 0%, transparent 72%)`;
+
+  let cabinet: string;
+  let felt: string;
+  let halo: string;
+  let rim: string;
+  let deco: string | undefined;
+  let decoFrame: string | undefined;
+  let decoSize: number | undefined;
+  let decoMask: string | undefined;
+  const emberColor = "#ff9a2e";
+  let smoke = `${rgba(t.bgB, 0.9)}`;
+
+  if (style === "vip") {
+    // Elegant VIP suite: rich gold + dark obsidian, deco fan, warm spot.
+    cabinet =
+      `radial-gradient(50% 34% at 50% -6%, rgba(255,238,190,0.72) 0%, rgba(255,200,104,0.28) 46%, transparent 74%),` +
+      `radial-gradient(85% 55% at 50% 112%, rgba(232,172,62,0.58) 0%, transparent 72%),` +
+      `conic-gradient(from 180deg at 50% -16%, rgba(255,216,134,0.17) 0deg 3deg, transparent 3deg 12deg),` +
+      `linear-gradient(180deg, #4c3c20 0%, #332715 36%, #43331b 64%, #261c0b 100%)`;
+    felt =
+      `radial-gradient(92% 70% at 50% 0%, rgba(255,216,146,0.38) 0%, transparent 62%),` +
+      `linear-gradient(180deg, #392a10 0%, #1c1409 52%, #33250e 100%)`;
+    halo = `radial-gradient(62% 46% at 50% 0%, rgba(255,206,116,0.38) 0%, transparent 70%)`;
+    rim = "rgba(255,214,140,0.62)";
+    deco = DECO_VIP;
+    decoFrame = DECO_FRAME;
+    decoSize = 190;
+    decoMask = "radial-gradient(130% 110% at 50% 0%, #fff 25%, transparent 88%)";
+    smoke = "rgba(74,52,20,0.9)";
+  } else if (style === "volcano") {
+    // Volcanic abyss: lava glow from below, embers rising, hot rim light.
+    cabinet =
+      `radial-gradient(58% 42% at 50% 118%, rgba(255,178,74,0.98) 0%, rgba(214,64,12,0.60) 44%, transparent 78%),` +
+      `radial-gradient(42% 30% at 50% -6%, rgba(255,148,60,0.52) 0%, transparent 72%),` +
+      `radial-gradient(130% 85% at 50% 0%, #a6320f 0%, #6d1e0b 46%, #3d0e06 100%)`;
+    felt =
+      `radial-gradient(92% 70% at 50% 0%, rgba(255,156,68,0.36) 0%, transparent 62%),` +
+      `linear-gradient(180deg, #43180a 0%, #1e0804 52%, #3a1107 100%)`;
+    halo = `radial-gradient(62% 46% at 50% 0%, rgba(255,140,50,0.40) 0%, transparent 70%)`;
+    rim = "rgba(255,150,60,0.62)";
+    deco = DECO_VOLCANO;
+    decoSize = 250;
+    decoMask = "radial-gradient(130% 110% at 50% 100%, #fff 18%, transparent 86%)";
+    smoke = "rgba(96,34,12,0.92)";
+  } else {
+    // Theme scene, lifted so no cabinet sits in flat black.
+    cabinet = image
+      ? `${spotlight}, linear-gradient(rgba(6,10,22,0.52), rgba(3,6,14,0.80)), url(${image})`
+      : `radial-gradient(48% 34% at 50% -6%, ${rgba(a, 0.62)} 0%, transparent 72%),` +
+        `radial-gradient(90% 56% at 50% 112%, ${rgba(a, 0.40)} 0%, transparent 74%),` +
+        `linear-gradient(180deg, ${rgba(t.bgA, 0.98)} 0%, ${t.bgB} 58%, ${rgba(t.bgA, 0.88)} 100%)`;
+    felt =
+      `radial-gradient(92% 70% at 50% 0%, ${rgba(a, 0.36)} 0%, transparent 62%),` +
+      `radial-gradient(70% 46% at 50% 108%, ${rgba(a, 0.24)} 0%, transparent 74%),` +
+      `linear-gradient(180deg, ${rgba(t.bgA, 0.95)} 0%, ${rgba(t.bgB, 0.96)} 52%, ${rgba(t.bgA, 0.88)} 100%)`;
+    halo = `radial-gradient(60% 45% at 50% 0%, ${rgba(a, 0.36)} 0%, transparent 70%)`;
+    rim = rgba(a, 0.58);
+  }
 
   // Deterministic aurora blobs so each cabinet animates slightly differently.
   const drift = [0, 1, 2].map((i) => ({
-    color: i === 1 ? t.accent : rgba(t.bgA, 0.85),
+    color:
+      style === "volcano"
+        ? i === 1
+          ? emberColor
+          : rgba(t.bgA, 0.9)
+        : style === "vip"
+          ? i === 1
+            ? "rgba(255,206,116,0.9)"
+            : "rgba(120,86,26,0.9)"
+          : i === 1
+            ? t.accent
+            : rgba(t.bgA, 0.85),
     size: 42 + ((h >> (i * 3)) % 26),
     x: 12 + ((h >> (i * 2)) % 70),
     y: 8 + ((h >> (i * 4)) % 40),
   }));
+  if (style === "volcano") {
+    // smoke reads better as two big soft banks low in frame
+    drift[1] = { color: smoke, size: 74, x: 22, y: 62 };
+    drift[2] = { color: smoke, size: 58, x: 62, y: 70 };
+  }
+
+  // Rising embers, deterministic per game (volcano scenes only).
+  const embers: Scene["embers"] = [];
+  if (style === "volcano") {
+    for (let i = 0; i < 16; i++) {
+      const s = (h >> i) & 0xff;
+      embers.push({
+        x: 4 + ((s * 37) % 92),
+        y: 42 + ((s * 13) % 52),
+        size: 1.5 + ((s % 5) * 0.9),
+        delay: -(((s % 40) / 10) % 6),
+      });
+    }
+  }
 
   return {
-    image,
-    cabinet,
-    felt,
-    halo: `radial-gradient(60% 45% at 50% 0%, ${rgba(a, 0.30)} 0%, transparent 70%)`,
-    aurora: drift,
-    rim: rgba(a, 0.55),
+    style, image, cabinet, felt, halo, rim, aurora: drift, embers,
+    deco, decoFrame, decoSize, decoMask,
   };
 }

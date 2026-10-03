@@ -20,9 +20,16 @@ function hash(s: string): number {
 const PACK_LABEL: Record<string, string> = {
   kemet: "Kemet",
   classic: "Classic",
+  lux: "Gold Reels",
   fruits2: "Fruit 16-bit",
   pixelfood: "Pixel Food",
   fantasy: "Fantasy",
+};
+
+const SCENE_LABEL: Record<string, string> = {
+  vip: "VIP Lounge",
+  volcano: "Fantasy Fire",
+  theme: "",
 };
 
 export default function GameCard({ g }: { g: GameCardData }) {
@@ -36,7 +43,7 @@ export default function GameCard({ g }: { g: GameCardData }) {
     <Link
       href={`/play/${alias}`}
       prefetch={false}
-      className="game-card group block overflow-hidden rounded-2xl border border-white/5 bg-[#2a3866] transition hover:-translate-y-1"
+      className="game-card group block overflow-hidden rounded-2xl border border-white/5 bg-[#35478a] transition hover:-translate-y-1"
       style={{ boxShadow: `0 0 0 1px ${scene.rim}` }}
     >
       <div
@@ -49,7 +56,22 @@ export default function GameCard({ g }: { g: GameCardData }) {
       >
         {/* Ambient halo + vignette so the art reads on every theme */}
         <span aria-hidden className="pointer-events-none absolute inset-0" style={{ backgroundImage: scene.halo }} />
+        {scene.deco && (
+          <span
+            aria-hidden
+            className="pointer-events-none absolute inset-0 opacity-90"
+            style={{
+              backgroundImage: scene.deco,
+              backgroundSize: `${Math.round((scene.decoSize ?? 190) * 0.8)}px ${Math.round((scene.decoSize ?? 190) * 0.8)}px`,
+              maskImage: scene.decoMask,
+              WebkitMaskImage: scene.decoMask,
+            }}
+          />
+        )}
         <span aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-10" style={{ background: "linear-gradient(transparent, rgba(3,6,14,0.75))" }} />
+        <span className="absolute bottom-1.5 left-2 text-[9px] font-bold uppercase tracking-widest text-slate-200/80">
+          {SCENE_LABEL[scene.style]}
+        </span>
         <img
           src={cover}
           alt=""

@@ -18,7 +18,7 @@ export default async function Home({
 
   if (!s) {
     return (
-      <main className="flex min-h-screen flex-col items-center justify-center gap-8 bg-[#1b2447] p-8 text-white">
+      <main className="flex min-h-screen flex-col items-center justify-center gap-8 bg-transparent p-8 text-white">
         <h1 className="bg-gradient-to-r from-sky-300 via-sky-400 to-blue-600 bg-clip-text text-6xl font-black text-transparent drop-shadow-[0_0_30px_rgba(56,189,248,0.4)]">
           NEXUS-K
         </h1>
@@ -67,7 +67,7 @@ export default async function Home({
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         {/* recent activity */}
-        <section className="rounded-2xl border border-white/5 bg-[#2a3866] p-5">
+        <section className="rounded-2xl border border-white/5 bg-[#35478a] p-5">
           <h3 className="mb-4 font-bold text-slate-200">RECENT ACTIVITY</h3>
           {recent.length === 0 && <p className="text-sm text-slate-500">No spins yet — place your first bet!</p>}
           <ul className="space-y-3">
@@ -83,7 +83,7 @@ export default async function Home({
         </section>
 
         {/* daily bonus */}
-        <section className="rounded-2xl border border-amber-500/20 bg-[#2a3866] p-5">
+        <section className="rounded-2xl border border-amber-500/20 bg-[#35478a] p-5">
           <h3 className="mb-4 font-bold text-slate-200">DAILY BONUS</h3>
           <div className="text-5xl">🎁</div>
           <p className="mt-2 text-sm text-slate-400">Claim your daily 250 coin bonus.</p>
@@ -95,7 +95,7 @@ export default async function Home({
         </section>
 
         {/* hot picks */}
-        <section className="rounded-2xl border border-white/5 bg-[#2a3866] p-5">
+        <section className="rounded-2xl border border-white/5 bg-[#35478a] p-5">
           <h3 className="mb-4 font-bold text-slate-200">WHY NEXUS-K</h3>
           <ul className="space-y-2 text-sm text-slate-400">
             <li>💎 347+ games, 10 providers</li>
