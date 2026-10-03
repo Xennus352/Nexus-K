@@ -5,7 +5,7 @@ import Link from "next/link";
 import gsap from "gsap";
 import confetti from "canvas-confetti";
 import { logSpin } from "@/server/actions";
-import { themeFor } from "@/lib/theme";
+import { themeFor, assetFor } from "@/lib/theme";
 import Loader from "@/components/Loader";
 
 type Grid = number[][];
@@ -45,21 +45,23 @@ async function shuffleCell(
   cell: HTMLDivElement | null,
   final: number,
   steps: number,
-  symbols: string[],
+  count: number,
+  htmlFor: (v: number) => string,
   onTick: () => void
 ) {
   if (!cell) return;
   for (let i = 0; i < steps; i++) {
-    cell.textContent = symbols[Math.floor(Math.random() * symbols.length)];
+    cell.innerHTML = htmlFor(Math.floor(Math.random() * count));
     onTick();
     await gsap.fromTo(cell, { y: -16 }, { y: 0, duration: 0.07, ease: "power1.out" });
   }
-  cell.textContent = symbols[final % symbols.length];
+  cell.innerHTML = htmlFor(final);
   await gsap.fromTo(cell, { y: -22, scale: 1.2 }, { y: 0, scale: 1, duration: 0.3, ease: "back.out(2)" });
 }
 
 export default function Player({ uid, alias }: { uid: number; alias: string }) {
   const t = themeFor(alias);
+  const assets = assetFor(alias);
   const [gid, setGid] = useState<number | null>(null);
   const [grid, setGrid] = useState<Grid | null>(null);
   const [wallet, setWallet] = useState(0);
@@ -112,7 +114,12 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
     const finals: Grid = j.game.grid;
     const flat: number[] = [];
     finals.forEach((col) => col.forEach((v) => flat.push(v)));
-    await Promise.all(cellRefs.current.map((c, i) => shuffleCell(c, flat[i], 5 + (i % 3), t.symbols, () => { if (soundOn && Math.random() < 0.3) audio.spinTick(); })));
+    const htmlFor = (v: number) => assets
+      ? `<img src="${assets.images[v % assets.images.length]}" alt="" class="h-full w-full object-contain p-1" />`
+      : t.symbols[v % t.symbols.length];
+    await Promise.all(cellRefs.current.map((c, i) =>
+      shuffleCell(c, flat[i], 5 + (i % 3), assets.images.length, htmlFor, () => { if (soundOn && Math.random() < 0.3) audio.spinTick(); })
+    ));
     if (soundOn) audio.reelStop();
 
     setGrid(finals);
@@ -187,31 +194,35 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
 
   const cols = grid.length;
   const rows = grid[0]?.length ?? 0;
-  const sym = (v: number) => t.symbols[v % t.symbols.length];
+  const sym = (v: number) => assets
+    ? <img src={assets.images[v % assets.images.length]} alt="" className="h-full w-full object-contain p-1" />
+    : t.symbols[v % t.symbols.length];
 
   return (
     <div className="flex w-full max-w-5xl flex-col items-center gap-5 text-white">
       {/* Header bar */}
-      <header className="flex w-full flex-wrap items-center justify-between gap-4 rounded-2xl border border-sky-500/25 bg-[#263259]/70 p-4 backdrop-blur-xl shadow-[0_10px_30px_rgba(0,0,0,0.8)]">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-tr from-sky-600 to-sky-300 shadow-lg shadow-sky-500/30">
-            <span className="text-xl">👑</span>
+      <header className="flex w-full flex-wrap items-center justify-between gap-3 rounded-2xl border border-sky-500/25 bg-[#263259]/70 p-3 backdrop-blur-xl shadow-[0_10px_30px_rgba(0,0,0,0.8)] sm:gap-4 sm:p-4">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-tr from-sky-600 to-sky-300 shadow-lg shadow-sky-500/30">
+            {assets.character
+              ? <img src={assets.character} alt="" className="h-full w-full rounded-full object-contain" />
+              : <span className="text-xl">👑</span>}
           </div>
-          <div>
-            <h1 className="bg-gradient-to-br from-sky-200 via-sky-400 to-blue-600 bg-clip-text text-xl font-black tracking-wider text-transparent" style={{ fontFamily: "Cinzel, serif" }}>
+          <div className="min-w-0">
+            <h1 className="truncate bg-gradient-to-br from-sky-200 via-sky-400 to-blue-600 bg-clip-text text-base font-black tracking-wider text-transparent sm:text-xl font-cinzel">
               {alias.toUpperCase()}
             </h1>
             <p className="text-[10px] uppercase tracking-widest text-sky-200/50">Nexus-K Luxury Slots</p>
           </div>
         </div>
-        <div className="flex items-center gap-3">
-          <div className="min-w-[130px] rounded-xl border border-sky-500/30 bg-black/60 px-4 py-2 text-center">
+        <div className="flex w-full items-center justify-between gap-2 sm:w-auto sm:justify-end sm:gap-3">
+          <div className="min-w-0 flex-1 rounded-xl border border-sky-500/30 bg-black/60 px-2 py-1.5 text-center sm:min-w-[130px] sm:flex-none sm:px-4 sm:py-2">
             <span className="block text-[10px] font-semibold uppercase text-sky-400/70">Balance</span>
-            <span className="font-mono text-xl font-bold text-sky-300 drop-shadow-[0_0_8px_rgba(56,189,248,0.7)]">💎 {wallet.toLocaleString()}</span>
+            <span className="block truncate font-mono text-base font-bold text-sky-300 drop-shadow-[0_0_8px_rgba(56,189,248,0.7)] sm:text-xl">💎 {wallet.toLocaleString()}</span>
           </div>
-          <div className="min-w-[130px] rounded-xl border border-sky-500/30 bg-black/60 px-4 py-2 text-center">
+          <div className="min-w-0 flex-1 rounded-xl border border-sky-500/30 bg-black/60 px-2 py-1.5 text-center sm:min-w-[130px] sm:flex-none sm:px-4 sm:py-2">
             <span className="block text-[10px] font-semibold uppercase text-emerald-400/70">Last Win</span>
-            <span className="font-mono text-xl font-bold text-emerald-400">+{lastWin}</span>
+            <span className="block truncate font-mono text-base font-bold text-emerald-400 sm:text-xl">+{lastWin}</span>
           </div>
           <button onClick={() => setShowPaytable(true)} className="flex h-10 w-10 items-center justify-center rounded-xl border border-sky-500/30 bg-sky-500/10 text-sky-300 transition hover:bg-sky-500/20" title="Paytable">☰</button>
           <button onClick={() => setSoundOn(!soundOn)} className="flex h-10 w-10 items-center justify-center rounded-xl border border-sky-500/30 bg-sky-500/10 text-sky-300 transition hover:bg-sky-500/20" title="Sound">{soundOn ? "🔊" : "🔇"}</button>
@@ -219,13 +230,22 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
       </header>
 
       {/* Machine frame */}
-      <div className="w-full rounded-3xl border-2 border-sky-500/40 bg-gradient-to-b from-slate-900/60 via-slate-950/80 to-black p-3 shadow-2xl sm:p-6">
+      <div
+        className="relative w-full overflow-hidden rounded-3xl border-2 border-sky-500/40 bg-gradient-to-b from-slate-900/60 via-slate-950/80 to-black p-3 shadow-2xl sm:p-6"
+        style={assets.bg
+          ? { backgroundImage: `linear-gradient(rgba(3,7,18,0.82), rgba(2,4,10,0.94)), url(${assets.bg})`, backgroundSize: "cover", backgroundPosition: "center" }
+          : undefined}
+      >
         {/* Marquee */}
-        <div className="mb-3 flex items-center justify-between rounded-xl border border-sky-500/40 bg-gradient-to-r from-blue-950/70 via-black to-blue-950/70 p-2 px-4 text-center">
+        <div className="mb-3 flex items-center justify-between gap-2 rounded-xl border border-sky-500/40 bg-gradient-to-r from-blue-950/70 via-black to-blue-950/70 p-2 px-4 text-center">
           <span className="hidden text-xs font-bold uppercase tracking-widest text-sky-200/80 sm:inline">{sel} PAYLINES</span>
-          <span className="font-mono text-sm font-bold tracking-widest text-sky-300 drop-shadow-[0_0_10px_rgba(56,189,248,0.8)] sm:text-base" style={{ fontFamily: "Cinzel, serif" }}>
-            ★ {t.scene} {t.tagline.toUpperCase()} ★
-          </span>
+          {assets.logo ? (
+            <img src={assets.logo} alt={alias} className="h-8 w-auto max-w-[70%] object-contain sm:h-11" />
+          ) : (
+            <span className="text-sm font-bold tracking-widest text-sky-300 drop-shadow-[0_0_10px_rgba(56,189,248,0.8)] sm:text-base font-cinzel">
+              ★ {t.scene} {t.tagline.toUpperCase()} ★
+            </span>
+          )}
           <span className="hidden text-xs font-bold uppercase tracking-widest text-sky-200/80 sm:inline">REAL ENGINE</span>
         </div>
 
@@ -248,11 +268,20 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
 
           {/* Big win overlay */}
           {bigWin > 0 && (
-            <div className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-black/80 backdrop-blur-md">
-              <h2 className="bg-gradient-to-br from-sky-200 via-sky-400 to-blue-600 bg-clip-text text-4xl font-black tracking-wider text-transparent sm:text-6xl" style={{ fontFamily: "Cinzel, serif" }}>BIG WIN!</h2>
-              <p className="text-slate-300">YOU WON</p>
-              <div className="font-mono text-5xl font-bold text-emerald-400" style={{ fontFamily: "Cinzel, serif" }}>+{bigWin}</div>
-              <button onClick={() => setBigWin(0)} className="mt-6 rounded-full bg-gradient-to-b from-sky-300 to-blue-600 px-8 py-3 text-lg font-bold uppercase tracking-wider text-slate-950 shadow-lg transition hover:brightness-110">Collect!</button>
+            <div className="absolute inset-0 z-30 flex flex-col items-center justify-center overflow-hidden bg-black/80 backdrop-blur-md">
+              {assets.bigwinDecor && (
+                <img src={assets.bigwinDecor} alt="" className="pointer-events-none absolute inset-0 h-full w-full object-cover opacity-60" />
+              )}
+              <div className="relative flex flex-col items-center gap-1">
+                {assets.kind === "kemet" && assets.bigwin ? (
+                  <img src={assets.bigwin} alt="Big Win" className="w-64 max-w-[75%] sm:w-96" />
+                ) : (
+                  <h2 className="bg-gradient-to-br from-sky-200 via-sky-400 to-blue-600 bg-clip-text text-4xl font-black tracking-wider text-transparent sm:text-6xl font-cinzel">BIG WIN!</h2>
+                )}
+                <p className="text-slate-300">YOU WON</p>
+                <div className="text-4xl font-bold text-amber-300 drop-shadow-[0_0_12px_rgba(251,191,36,0.8)] sm:text-5xl font-cinzel">+{bigWin}</div>
+                <button onClick={() => setBigWin(0)} className="mt-4 rounded-full bg-gradient-to-b from-amber-300 to-yellow-600 px-8 py-3 text-lg font-bold uppercase tracking-wider text-slate-950 shadow-lg transition hover:brightness-110">Collect!</button>
+              </div>
             </div>
           )}
 
@@ -264,7 +293,12 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
                   return (
                     <div key={r} ref={(el) => { cellRefs.current[idx] = el; }}
                       className="play-cell flex items-center justify-center text-4xl sm:text-5xl"
-                      style={{ height: `clamp(64px, ${380 / rows}px, 120px)` }}>
+                      style={{
+                        height: `clamp(64px, ${380 / rows}px, 120px)`,
+                        backgroundImage: assets.cellFrame ? `url(${assets.cellFrame})` : undefined,
+                        backgroundSize: assets.cellFrame ? "100% 100%" : undefined,
+                        backgroundRepeat: "no-repeat",
+                      }}>
                       {sym(v)}
                     </div>
                   );
@@ -319,13 +353,16 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
       {/* Paytable modal */}
       {showPaytable && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-md" onClick={() => setShowPaytable(false)}>
-          <div className="w-full max-w-2xl rounded-3xl border border-sky-500/40 bg-[#263259]/90 p-6 backdrop-blur-xl" onClick={(e) => e.stopPropagation()}>
-            <h2 className="mb-6 text-center text-2xl font-bold text-sky-300" style={{ fontFamily: "Cinzel, serif" }}>SYMBOL PAYTABLE</h2>
-            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-              {t.symbols.map((s, i) => (
-                <div key={i} className="flex flex-col items-center rounded-xl border border-sky-500/15 bg-black/50 p-3">
-                  <span className="text-3xl">{s}</span>
-                  <span className="mt-1 text-[10px] text-sky-200/60">{t.tagline}</span>
+          <div className="w-full max-w-3xl rounded-3xl border border-sky-500/40 bg-[#263259]/90 p-6 backdrop-blur-xl" onClick={(e) => e.stopPropagation()}>
+            <h2 className="mb-6 text-center text-2xl font-bold text-sky-300 font-cinzel">SYMBOL PAYTABLE</h2>
+            <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-6">
+              {assets.images.map((src, i) => (
+                <div key={i}
+                  className="flex flex-col items-center gap-1 rounded-xl border border-sky-500/15 bg-black/50 p-2"
+                  style={assets.cellFrame ? { backgroundImage: `url(${assets.cellFrame})`, backgroundSize: "100% 100%" } : undefined}
+                >
+                  <img src={src} alt="" className="h-12 w-12 object-contain sm:h-14 sm:w-14" />
+                  <span className="text-[9px] uppercase text-sky-200/50">{i === assets.wildIndex ? "Wild" : `Symbol ${i + 1}`}</span>
                 </div>
               ))}
             </div>
@@ -338,7 +375,7 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
       {showHistory && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-md" onClick={() => setShowHistory(false)}>
           <div className="flex max-h-[80vh] w-full max-w-md flex-col rounded-3xl border border-sky-500/40 bg-[#263259]/90 p-6" onClick={(e) => e.stopPropagation()}>
-            <h2 className="mb-4 text-center text-2xl font-bold text-sky-300" style={{ fontFamily: "Cinzel, serif" }}>SPIN HISTORY</h2>
+            <h2 className="mb-4 text-center text-2xl font-bold text-sky-300 font-cinzel">SPIN HISTORY</h2>
             <div className="space-y-2 overflow-y-auto">
               {history.length === 0 && <p className="py-4 text-center text-sm text-sky-200/50">No spins yet.</p>}
               {history.map((h, i) => (

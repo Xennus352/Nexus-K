@@ -47,3 +47,8 @@ src/generated/
 
 # slotopol game engine build
 engine/
+
+# original free asset packs (122 MB) — kept locally, not committed.
+# public/gfx holds the optimized WebP derivatives the app loads.
+# regenerate with: ./scripts/optimize-assets.sh
+/public/assets/

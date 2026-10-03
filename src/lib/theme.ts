@@ -104,6 +104,57 @@ const PACKS: { keys: string[]; t: Theme }[] = [
   },
 ];
 
+const CLASSIC = "/gfx/classic";
+const KEMET = "/gfx";
+
+export type AssetPack = {
+  kind: "kemet" | "classic";
+  images: string[];
+  /** Index in `images` that is the wild symbol, when known. */
+  wildIndex?: number;
+  /** Tile art placed behind each reel symbol (kemet pack). */
+  cellFrame?: string;
+  bg?: string;
+  logo?: string;
+  bigwin?: string;
+  bigwinDecor?: string;
+  character?: string;
+};
+
+const KEMET_IMAGES = [
+  `${KEMET}/sym/ankh.webp`,
+  `${KEMET}/sym/eye.webp`,
+  `${KEMET}/sym/necklace.webp`,
+  `${KEMET}/sym/scarab.webp`,
+  `${KEMET}/sym/wild.webp`,
+];
+
+const CLASSIC_IMAGES = [
+  "apple", "bar", "bell", "cherry", "clover", "coin", "diamond", "die",
+  "grapefruit", "heart", "horseshoe", "lemon", "orange", "plum", "seven", "watermelon",
+].map((n) => `${CLASSIC}/${n}.webp`);
+
+const KEMET_KEYWORDS = ["egypt", "pyramid", "pharaoh", "cleopatra", "anubis", "kemet", "scarab", "sphinx", "mummy"];
+
+export function assetFor(alias: string): AssetPack {
+  const n = alias.toLowerCase();
+  if (KEMET_KEYWORDS.some((k) => n.includes(k))) {
+    const base = KEMET;
+    return {
+      kind: "kemet",
+      images: KEMET_IMAGES,
+      wildIndex: 4,
+      cellFrame: `${base}/frame.webp`,
+      bg: `${base}/bg.webp`,
+      logo: `${base}/logo.webp`,
+      bigwin: `${base}/bigwin.webp`,
+      bigwinDecor: `${base}/bigwin-decor.webp`,
+      character: `${base}/anubis.webp`,
+    };
+  }
+  return { kind: "classic", images: CLASSIC_IMAGES };
+}
+
 const FALLBACK: Theme[] = [
   { cover: "from-blue-700/80 to-slate-950", accent: "#38bdf8", accentText: "text-sky-300",
     symbols: ["🍒", "⭐", "💎", "🔔", "7️⃣", "🍇", "🎰", "🍀"], scene: "🎰", tagline: "Classic Casino" },
