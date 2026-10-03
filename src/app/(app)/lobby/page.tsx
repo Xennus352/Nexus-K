@@ -1,6 +1,5 @@
 import { getSession } from "@/lib/session";
 import { redirect } from "next/navigation";
-import Link from "next/link";
 import GameCard from "@/components/GameCard";
 
 const ENGINE = process.env.SLOTOPOL_URL ?? "http://localhost:8080";

@@ -37,7 +37,7 @@ export default async function Home({
       })
     : [];
 
-  let featured: any[] = [];
+  let featured: { prov: string; name: string; sx: number; sy: number; rtp: number[] }[] = [];
   try {
     const res = await fetch(`${ENGINE}/game/list?inc=slot&exc=~all&sort=true`, {
       cache: "no-store",
