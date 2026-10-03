@@ -241,14 +241,22 @@ export function multArt(m: number): string | undefined {
   return `${MULT}/${m}x.webp`;
 }
 
-/** Feature marks for the paytable and win banners. */
-export const BADGE_ART = {
-  wild: `${BADGE}/wild.webp`,
-  scatter: `${BADGE}/scatter.webp`,
-  jackpot: `${BADGE}/jackpot.webp`,
-  bonus: `${BADGE}/bonus.webp`,
-  bigwin: `${BADGE}/big-win.webp`,
+/** Feature marks for the paytable and win banners, with per-game variants. */
+const BADGE_ART = {
+  wild: [`${BADGE}/wild.webp`, `${BADGE}/wild2.webp`, `${BADGE}/wild3.webp`],
+  scatter: [`${BADGE}/scatter.webp`, `${BADGE}/scatter2.webp`],
+  jackpot: [`${BADGE}/jackpot.webp`, `${BADGE}/jackpot2.webp`],
+  bonus: [`${BADGE}/bonus.webp`],
+  bigwin: [`${BADGE}/big-win.webp`],
 } as const;
+
+export type BadgeKind = keyof typeof BADGE_ART;
+
+/** Deterministic badge art so each game gets its own style of each mark. */
+export function badgeFor(kind: BadgeKind, alias: string): string {
+  const set: readonly string[] = BADGE_ART[kind];
+  return set[hash(alias) % set.length];
+}
 
 const KEMET_PACK: AssetPack = {
   kind: "kemet",

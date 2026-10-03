@@ -7,7 +7,7 @@ import confetti from "canvas-confetti";
 import { logSpin } from "@/server/actions";
 import {
   themeFor, assetFor, sceneFor, buttonsFor, multArt, MULTIPLIERS,
-  BADGE_ART, type Multiplier,
+  badgeFor, type BadgeKind, type Multiplier,
 } from "@/lib/theme";
 import Loader from "@/components/Loader";
 
@@ -560,7 +560,7 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
                   <img src={assets.bigwin} alt="Big Win" className="w-64 max-w-[75%] sm:w-96" />
                 ) : (
                   <>
-                    <img src={BADGE_ART.bigwin} alt="" className="h-16 w-auto object-contain sm:h-24" />
+                    <img src={badgeFor("bigwin", alias)} alt="" className="h-16 w-auto object-contain sm:h-24" />
                     <h2
                       className="-mt-1 text-3xl font-black tracking-wider font-cinzel sm:text-5xl"
                       style={{ color: t.accent, textShadow: `0 0 24px ${t.accent}, 0 4px 12px rgba(0,0,0,0.9)` }}
@@ -703,14 +703,12 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
           <div className="w-full max-w-3xl rounded-3xl border bg-[#33478a]/92 p-6 backdrop-blur-xl" style={{ borderColor: scene.rim, backgroundImage: scene.cabinet }} onClick={(e) => e.stopPropagation()}>
             <h2 className="mb-4 text-center text-2xl font-bold font-cinzel" style={{ color: t.accent }}>SYMBOL PAYTABLE</h2>
             <div className="mb-5 flex flex-wrap items-center justify-center gap-2">
-              {(Object.keys(BADGE_ART) as (keyof typeof BADGE_ART)[])
-                .filter((k) => k !== "bigwin")
-                .map((k) => (
-                  <span key={k} className="flex items-center gap-2 rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-widest" style={{ borderColor: scene.rim }}>
-                    <img src={BADGE_ART[k]} alt="" className="h-6 w-auto object-contain" />
-                    <span className="text-slate-200/80">{k}</span>
-                  </span>
-                ))}
+              {(["wild", "scatter", "jackpot", "bonus"] as BadgeKind[]).map((k) => (
+                <span key={k} className="flex items-center gap-2 rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-widest" style={{ borderColor: scene.rim }}>
+                  <img src={badgeFor(k, alias)} alt="" className="h-6 w-auto object-contain" />
+                  <span className="text-slate-200/80">{k}</span>
+                </span>
+              ))}
             </div>
             <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-6">
               {assets.images.map((src, i) => {
@@ -727,7 +725,7 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
                   >
                     <img src={src} alt="" className="h-12 w-12 object-contain sm:h-14 sm:w-14" style={{ imageRendering: assets.pixelGrid ? "pixelated" : "auto" }} />
                     {isWild && (
-                      <img src={BADGE_ART.wild} alt="Wild" className="absolute -right-1 -top-1 h-6 w-auto drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)]" />
+                      <img src={badgeFor("wild", alias)} alt="Wild" className="absolute -right-1 -top-1 h-6 w-auto drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)]" />
                     )}
                     <span className="text-[9px] uppercase text-sky-200/50">{isWild ? "Wild" : `Symbol ${i + 1}`}</span>
                   </div>
