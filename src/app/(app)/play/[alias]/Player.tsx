@@ -11,6 +11,21 @@ import Loader from "@/components/Loader";
 type Grid = number[][];
 type Win = { pay: number; sym: number; num: number; li: number; xy: [number, number][] };
 
+/**
+ * Shape of an engine reply. `what` carries the engine's error message when set;
+ * the remaining fields are present on a successful call.
+ */
+type EngineReply = {
+  what?: string;
+  /** Engine replied with no payload (e.g. a successful collect). */
+  empty?: boolean;
+  gid: number;
+  game: { grid: Grid; gain: number; bet: number; sel: number };
+  wallet: number;
+  gain: number;
+  wins: Win[];
+};
+
 class SoundFX {
   ctx: AudioContext | null = null;
   init() {
@@ -88,8 +103,8 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ cid: 1, uid, alias }),
       });
-      const j = await res.json();
-      if (j.what) { setError(j.what); return; }
+      const j = (await res.json()) as EngineReply | null;
+      if (!j || j.what || !j.game) { setError(j?.what ?? "engine returned no data"); return; }
       setGid(j.gid);
       setGrid(j.game.grid);
       setWallet(j.wallet);
@@ -100,6 +115,13 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
 
   async function doSpin() {
     if (busy || gid == null) return;
+    // The engine stakes bet × active lines, so check the real cost up front.
+    const stake = bet * (sel || 1);
+    if (stake > wallet) {
+      setAuto(false);
+      setNotice(`⚠️ Not enough balance for a ${stake} bet — lower the bet or deposit.`);
+      return;
+    }
     setBusy(true);
     setWins([]);
     if (soundOn) audio.reelStop();
@@ -108,8 +130,8 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ gid, bet }),
     });
-    const j = await res.json();
-    if (j.what) { setBusy(false); setAuto(false); setNotice(`⚠️ ${j.what}`); return; }
+    const j = (await res.json()) as EngineReply | null;
+    if (!j || j.what || !j.game) { setBusy(false); setAuto(false); setNotice(`⚠️ ${j?.what ?? "engine returned no data"}`); return; }
 
     const finals: Grid = j.game.grid;
     const flat: number[] = [];
@@ -162,31 +184,37 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
   async function doubleup() {
     if (busy || gid == null || gain <= 0) return;
     setBusy(true);
+    const risk = gain;
     const res = await fetch("/api/engine/slot/doubleup", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ gid, mult: 2 }),
     });
-    const j = await res.json();
-    if (j.what) { setNotice(`⚠️ ${j.what}`); setBusy(false); return; }
-    if (!j.what) {
-      setGain(j.gain ?? 0);
-      setWallet(j.wallet);
-      setLastWin((j.gain ?? 0) > 0 ? j.gain : 0);
-    }
+    const j = (await res.json()) as EngineReply | null;
+    if (!j || j.what || j.gain == null) { setNotice(`⚠️ ${j?.what ?? "engine returned no result"}`); setBusy(false); return; }
+    const won = (j.gain ?? 0) > risk;
+    setGain(j.gain ?? 0);
+    setWallet(j.wallet);
+    setLastWin(j.gain ?? 0);
+    setNotice(won ? `🎉 Doubled! ${risk} → ${j.gain}` : `💔 Gamble lost — ${risk} staked`);
+    if (soundOn) audio.blip(won ? 880 : 160, 0.3, 0.22, won ? "triangle" : "sawtooth");
     setBusy(false);
   }
 
   async function collect() {
     if (gid == null) return;
+    // Collect only clears the pending gamble state; the engine answers with a
+    // bare `null` on success, so an empty reply means "done", not "failed".
     const res = await fetch("/api/engine/slot/collect", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ gid }),
     });
-    const j = await res.json();
-    if (j.what) { setNotice(`⚠️ ${j.what}`); return; }
-    setWallet(j.wallet); setGain(0); setNotice("");
+    const j = (await res.json().catch(() => null)) as EngineReply | null;
+    if (j?.what) { setNotice(`⚠️ ${j.what}`); return; }
+    if (typeof j?.wallet === "number") setWallet(j.wallet);
+    setGain(0);
+    setNotice("");
   }
 
   if (error) return <p className="mt-20 text-rose-400">{error}</p>;
@@ -194,6 +222,10 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
 
   const cols = grid.length;
   const rows = grid[0]?.length ?? 0;
+  // The engine charges the bet per line, so the real stake is bet × active lines.
+  const lines = sel || 1;
+  const totalBet = bet * lines;
+  const maxBet = () => Math.max(1, Math.floor(wallet / lines));
   const sym = (v: number) => assets
     ? <img src={assets.images[v % assets.images.length]} alt="" className="h-full w-full object-contain p-1" />
     : t.symbols[v % t.symbols.length];
@@ -218,7 +250,7 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
         <div className="flex w-full items-center justify-between gap-2 sm:w-auto sm:justify-end sm:gap-3">
           <div className="min-w-0 flex-1 rounded-xl border border-sky-500/30 bg-black/60 px-2 py-1.5 text-center sm:min-w-[130px] sm:flex-none sm:px-4 sm:py-2">
             <span className="block text-[10px] font-semibold uppercase text-sky-400/70">Balance</span>
-            <span className="block truncate font-mono text-base font-bold text-sky-300 drop-shadow-[0_0_8px_rgba(56,189,248,0.7)] sm:text-xl">💎 {wallet.toLocaleString()}</span>
+            <span data-testid="game-balance" className="block truncate font-mono text-base font-bold text-sky-300 drop-shadow-[0_0_8px_rgba(56,189,248,0.7)] sm:text-xl">💎 {wallet.toLocaleString()}</span>
           </div>
           <div className="min-w-0 flex-1 rounded-xl border border-sky-500/30 bg-black/60 px-2 py-1.5 text-center sm:min-w-[130px] sm:flex-none sm:px-4 sm:py-2">
             <span className="block text-[10px] font-semibold uppercase text-emerald-400/70">Last Win</span>
@@ -312,19 +344,20 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
         <div className="mt-4 flex flex-col items-center justify-between gap-4 border-t border-sky-500/20 pt-4 lg:flex-row">
           <div className="flex flex-wrap items-center justify-center gap-3 rounded-2xl border border-sky-500/30 bg-black/60 p-2">
             <button onClick={() => setBet(Math.max(1, bet - 1))} disabled={busy} className="flex h-10 w-10 items-center justify-center rounded-xl border border-sky-500/40 bg-sky-500/20 text-sky-300 transition active:scale-95 disabled:opacity-40">−</button>
-            <div className="min-w-[90px] text-center">
+            <div className="min-w-[104px] text-center">
               <span className="block text-[9px] font-semibold uppercase text-sky-400/60">Total Bet</span>
-              <span className="font-mono text-lg font-bold text-sky-300">{bet}</span>
+              <span data-testid="total-bet" className="font-mono text-lg font-bold text-sky-300">{totalBet}</span>
+              <span className="block text-[9px] text-slate-400/70">{bet} × {lines} lines</span>
             </div>
             <button onClick={() => setBet(bet + 1)} disabled={busy} className="flex h-10 w-10 items-center justify-center rounded-xl border border-sky-500/40 bg-sky-500/20 text-sky-300 transition active:scale-95 disabled:opacity-40">+</button>
-            <button onClick={() => setBet(25)} disabled={busy} className="rounded-xl border border-sky-500/50 bg-sky-600/30 px-3 py-2 text-xs font-bold uppercase tracking-wider text-sky-300">Max</button>
+            <button onClick={() => setBet(maxBet())} disabled={busy} className="rounded-xl border border-sky-500/50 bg-sky-600/30 px-3 py-2 text-xs font-bold uppercase tracking-wider text-sky-300">Max</button>
           </div>
 
           <div className="flex flex-wrap items-center justify-center gap-3">
-            <button onClick={() => setAuto(!auto)} className={`flex min-w-[90px] flex-col items-center gap-1 rounded-2xl border px-4 py-4 text-xs font-bold uppercase tracking-wider transition ${auto ? "border-sky-300 bg-sky-600/50 text-white" : "border-sky-500/40 bg-sky-900/30 text-sky-200"}`}>
+            <button data-testid="auto-btn" onClick={() => setAuto(!auto)} className={`flex min-w-[90px] flex-col items-center gap-1 rounded-2xl border px-4 py-4 text-xs font-bold uppercase tracking-wider transition ${auto ? "border-sky-300 bg-sky-600/50 text-white" : "border-sky-500/40 bg-sky-900/30 text-sky-200"}`}>
               <span className="text-base">🔄</span><span>{auto ? "Stop" : "Auto"}</span>
             </button>
-            <button onClick={() => { setAuto(false); void safeSpin(); }} disabled={busy}
+            <button data-testid="spin-btn" onClick={() => { setAuto(false); void safeSpin(); }} disabled={busy}
               className="flex-1 rounded-2xl bg-gradient-to-b from-sky-300 via-sky-400 to-blue-600 px-10 py-4 text-2xl font-black uppercase tracking-widest text-slate-950 shadow-[0_0_30px_rgba(56,189,248,0.5)] transition hover:brightness-110 disabled:opacity-50">
               {busy ? "…" : "Spin ▶"}
             </button>
@@ -334,10 +367,13 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
         </div>
 
         {gain > 0 && (
-          <div className="mt-3 flex items-center justify-center gap-4 text-sm">
-            <span className="font-mono text-cyan-300">Gain: {gain}</span>
-            <button onClick={doubleup} disabled={busy} className="rounded-lg border border-sky-500/50 px-4 py-1.5 font-bold text-sky-300 hover:bg-sky-500/10">Double ×2</button>
-            <button onClick={collect} disabled={busy} className="rounded-lg border border-emerald-500/50 px-4 py-1.5 font-bold text-emerald-300 hover:bg-emerald-500/10">Collect</button>
+          <div className="mt-3 flex flex-col items-center gap-2">
+            <div className="flex flex-wrap items-center justify-center gap-3 text-sm">
+              <span className="font-mono text-cyan-300">Gamble {gain}</span>
+              <button data-testid="double-btn" onClick={doubleup} disabled={busy} className="rounded-lg border border-sky-500/50 px-4 py-1.5 font-bold text-sky-300 transition hover:bg-sky-500/10 disabled:opacity-40">Double ×2</button>
+              <button data-testid="collect-btn" onClick={collect} disabled={busy} className="rounded-lg border border-emerald-500/50 px-4 py-1.5 font-bold text-emerald-300 transition hover:bg-emerald-500/10 disabled:opacity-40">Keep</button>
+            </div>
+            <p className="text-[11px] text-slate-400/70">Win is already in your balance — gamble it or keep it.</p>
           </div>
         )}
 
