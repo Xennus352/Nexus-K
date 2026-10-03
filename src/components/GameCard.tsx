@@ -68,6 +68,25 @@ export default function GameCard({ g }: { g: GameCardData }) {
             }}
           />
         )}
+        {scene.props.slice(0, 5).map((p, i) => (
+          <img
+            key={i}
+            src={p.src}
+            alt=""
+            aria-hidden
+            loading="lazy"
+            decoding="async"
+            className="pointer-events-none absolute select-none object-contain"
+            style={{
+              left: `${p.x}%`,
+              top: `${p.y}%`,
+              width: Math.round(p.size * 0.6),
+              imageRendering: "pixelated",
+              opacity: 0.45,
+              filter: `drop-shadow(0 4px 6px rgba(0,0,0,0.5)) rotate(${p.tilt}deg)`,
+            }}
+          />
+        ))}
         <span aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-10" style={{ background: "linear-gradient(transparent, rgba(3,6,14,0.75))" }} />
         <span className="absolute bottom-1.5 left-2 text-[9px] font-bold uppercase tracking-widest text-slate-200/80">
           {SCENE_LABEL[scene.style]}

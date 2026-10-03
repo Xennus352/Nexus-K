@@ -42,15 +42,23 @@ convpx() {
 echo "Crowns of Kemet:"
 conv "$K/background/background.png"           1600x "$OUT/bg.webp"
 conv "$K/logo/logo_long.png"                   640x "$OUT/logo.webp"
+conv "$K/logo/logo_short.png"                   320x "$OUT/logo-short.webp"
 conv "$K/reel/reel_frame_filled.png"            512x "$OUT/frame.webp"
+conv "$K/reel/reel_frame_empty.png"             512x "$OUT/frame-empty.webp"
 conv "$K/popups/big_win.png"                    640x "$OUT/bigwin.webp"
 conv "$K/popups/big_win_decor.png"             1024x "$OUT/bigwin-decor.webp"
 conv "$K/characters/anubis.png"                 320x "$OUT/anubis.webp"
+conv "$K/characters/anubis_frame.png"           384x "$OUT/anubis-frame.webp"
 conv "$K/symbols/high/high_ankh_no_frame.png"   256x "$OUT/sym/ankh.webp"
 conv "$K/symbols/high/high_eye_no_frame.png"    256x "$OUT/sym/eye.webp"
 conv "$K/symbols/high/high_necklace_no_frame.png" 256x "$OUT/sym/necklace.webp"
 conv "$K/symbols/high/high_scarab_no_frame.png"   256x "$OUT/sym/scarab.webp"
 conv "$K/symbols/wild/wild.png"                 256x "$OUT/sym/wild.webp"
+# The framed variants dress the winning cells (a gem tile instead of a glyph).
+conv "$K/symbols/high/high_ankh.png"            256x "$OUT/sym/ankh-gem.webp"
+conv "$K/symbols/high/high_eye.png"             256x "$OUT/sym/eye-gem.webp"
+conv "$K/symbols/high/high_necklace.png"        256x "$OUT/sym/necklace-gem.webp"
+conv "$K/symbols/high/high_scarab.png"          256x "$OUT/sym/scarab-gem.webp"
 
 echo "Classic symbols:"
 for n in apple bar bell cherry clover coin diamond die \
@@ -71,6 +79,15 @@ for n in fruit_apple fruit_apple-slice fruit_banana fruit_blueberry \
          fruit_peach fruit_strawberry fruit_watermelon fruit_watermelon_slice; do
   convpx "$PF/$n.png" 800% "$OUT/pixelfood/$n.webp"
 done
+
+# The rest of the food pack becomes the food-court props that dress the cabinet
+# of every Pixel Food game, so all 100 icons are in play.
+mkdir -p "$OUT/food"
+while IFS= read -r -d '' f; do
+  n=$(basename "$f" .png)
+  [ -f "$OUT/pixelfood/$n.webp" ] && continue
+  convpx "$f" 800% "$OUT/food/$n.webp"
+done < <(find "$PF" -maxdepth 1 -type f -iname '*.png' -print0 | sort -z)
 
 echo "Pixel Fantasy Slot Machine:"
 for i in 1 2 3 4 5; do

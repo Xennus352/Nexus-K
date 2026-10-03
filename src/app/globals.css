@@ -28,3 +28,15 @@ body {
   line-height: 1.5;
   min-height: 100vh;
 }
+
+/* Rolling layer inside a reel cell: GSAP fills it while the reel spins, then it
+   empties and hands the cell back to the symbol React rendered. */
+.cell-roll {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}

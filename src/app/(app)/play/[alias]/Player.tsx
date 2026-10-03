@@ -143,22 +143,32 @@ function Plate({
   );
 }
 
+/**
+ * Rolls the symbols inside one reel cell. The rolling art lives in its own
+ * layer that React never touches, because replacing React-owned children would
+ * desync it from the DOM; the reel's real symbol is rendered by React underneath
+ * and simply uncovered when the roll stops.
+ */
 async function shuffleCell(
-  cell: HTMLDivElement | null,
+  roll: HTMLElement | null,
   final: number,
   steps: number,
   count: number,
   htmlFor: (v: number) => string,
   onTick: () => void
 ) {
-  if (!cell) return;
+  if (!roll) return;
   for (let i = 0; i < steps; i++) {
-    cell.innerHTML = htmlFor(Math.floor(Math.random() * count));
+    roll.innerHTML = htmlFor(Math.floor(Math.random() * count));
     onTick();
-    await gsap.fromTo(cell, { y: -16 }, { y: 0, duration: 0.07, ease: "power1.out" });
+    await gsap.fromTo(roll, { y: -16 }, { y: 0, duration: 0.07, ease: "power1.out" });
   }
-  cell.innerHTML = htmlFor(final);
-  await gsap.fromTo(cell, { y: -22, scale: 1.2 }, { y: 0, scale: 1, duration: 0.3, ease: "back.out(2)" });
+  roll.innerHTML = htmlFor(final);
+  await gsap.fromTo(roll, { y: -22, scale: 1.2 }, { y: 0, scale: 1, duration: 0.3, ease: "back.out(2)" });
+  // Hand over to the symbol React rendered for this spin.
+  await gsap.to(roll, { opacity: 0, duration: 0.12 });
+  roll.innerHTML = "";
+  gsap.set(roll, { opacity: 1 });
 }
 
 export default function Player({ uid, alias }: { uid: number; alias: string }) {
@@ -182,6 +192,7 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
   const [showPaytable, setShowPaytable] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const cellRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const rollRefs = useRef<(HTMLSpanElement | null)[]>([]);
   const machineRef = useRef<HTMLDivElement | null>(null);
   // Background art depends on the reel count, which is only known after the first deal.
   const cols = grid?.length ?? 5;
@@ -205,6 +216,26 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
           repeat: -1,
           yoyo: true,
           ease: "sine.inOut",
+        });
+      });
+    }, root);
+    return () => ctx.revert();
+  }, [scene, ready]);
+
+  // Food-court props drift gently (Pixel Food games).
+  useEffect(() => {
+    const root = machineRef.current;
+    if (!root || scene.props.length === 0) return;
+    const ctx = gsap.context(() => {
+      gsap.utils.toArray<HTMLElement>(".scene-prop").forEach((el, i) => {
+        gsap.to(el, {
+          y: i % 2 ? 10 : -10,
+          x: i % 3 ? -6 : 6,
+          duration: 4.5 + (i % 5),
+          repeat: -1,
+          yoyo: true,
+          ease: "sine.inOut",
+          delay: Number(el.dataset.delay ?? 0),
         });
       });
     }, root);
@@ -284,7 +315,7 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
     const htmlFor = (v: number) =>
       `<img src="${assets.images[v % assets.images.length]}" alt="" class="h-full w-full object-contain p-1"${px} />`;
     await Promise.all(cellRefs.current.map((c, i) =>
-      shuffleCell(c, flat[i], 5 + (i % 3), assets.images.length, htmlFor, () => { if (soundOn && Math.random() < 0.3) audio.spinTick(); })
+      shuffleCell(rollRefs.current[i], flat[i], 5 + (i % 3), assets.images.length, htmlFor, () => { if (soundOn && Math.random() < 0.3) audio.spinTick(); })
     ));
     if (soundOn) audio.reelStop();
 
@@ -362,10 +393,16 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
     setNotice("");
   }
 
+  const rows = grid?.[0]?.length ?? 0;
+  // Cells that are part of a paying line this spin (used for the gem tiles).
+  const winCells = useMemo(() => {
+    const set = new Set<number>();
+    for (const w of wins) for (const [c, r] of w.xy) set.add(c * rows + r);
+    return set;
+  }, [wins, rows]);
+
   if (error) return <p className="mt-20 text-rose-400">{error}</p>;
   if (!grid) return <Loader label={`DEALING ${alias.toUpperCase()}…`} />;
-
-  const rows = grid[0]?.length ?? 0;
   // The engine charges the bet per line, so the real stake is bet × active lines.
   const lines = sel || 1;
   const totalBet = bet * lines;
@@ -412,7 +449,7 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
       <div
         ref={machineRef}
         data-scene={scene.style}
-        className="relative w-full overflow-hidden rounded-3xl border-2 p-4 shadow-2xl sm:p-8"
+        className="@container relative w-full overflow-hidden rounded-3xl border-2 p-4 shadow-2xl sm:p-8"
         style={{
           borderColor: scene.rim,
           backgroundImage: scene.cabinet,
@@ -437,6 +474,24 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
                 background: `radial-gradient(circle, ${b.color} 0%, transparent 68%)`,
                 filter: "blur(34px)",
                 opacity: 0.55,
+              }}
+            />
+          ))}
+          {/* Food-court props behind the cabinet (Pixel Food games) */}
+          {scene.props.map((p, i) => (
+            <img
+              key={`p${i}`}
+              src={p.src}
+              alt=""
+              aria-hidden
+              className="scene-prop pointer-events-none absolute select-none"
+              data-delay={p.delay}
+              style={{
+                left: `${p.x}%`,
+                top: `${p.y}%`,
+                width: p.size,
+                imageRendering: "pixelated",
+                filter: `drop-shadow(0 6px 10px rgba(0,0,0,0.45)) rotate(${p.tilt}deg)`,
               }}
             />
           ))}
@@ -482,6 +537,15 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
               background: `radial-gradient(120% 100% at 50% 0%, transparent 40%, ${rgbaCss(0.06)} 100%)`,
             }}
           />
+          {/* Mascot standee in the cabinet margin (only where there is room) */}
+          {assets.characterFramed && (
+            <img
+              src={assets.characterFramed}
+              alt=""
+              aria-hidden
+              className="pointer-events-none absolute left-[0.6%] top-[34%] hidden w-[7.5%] min-w-[40px] max-w-[110px] select-none object-contain drop-shadow-[0_10px_18px_rgba(0,0,0,0.55)] [@container(min-width:760px)]:block"
+            />
+          )}
         </div>
 
         {/* Marquee */}
@@ -582,21 +646,42 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
           )}
 
           <div className="relative flex gap-px p-2">
+            {assets.emptyFrame && (
+              <div
+                aria-hidden
+                className="pointer-events-none absolute inset-0 opacity-[0.18]"
+                style={{ backgroundImage: `url(${assets.emptyFrame})`, backgroundSize: "100% 100%" }}
+              />
+            )}
             {grid.map((col, c) => (
-              <div key={c} className="flex flex-1 flex-col gap-px" style={{ borderRight: `1px solid ${scene.rim}` }}>
+              <div key={c} className="relative flex flex-1 flex-col gap-px" style={{ borderRight: `1px solid ${scene.rim}` }}>
                 {col.map((v, r) => {
                   const idx = c * rows + r;
+                  // Winning cells swap to the framed gem tile when the pack has one.
+                  const gem = winCells.has(idx) && assets.gemTiles
+                    ? assets.gemTiles[v % assets.gemTiles.length]
+                    : null;
                   return (
                     <div key={r} ref={(el) => { cellRefs.current[idx] = el; }}
-                      className="play-cell flex items-center justify-center text-4xl sm:text-5xl"
+                      className="play-cell relative flex items-center justify-center text-4xl sm:text-5xl"
                       style={{
                         height: `clamp(64px, ${380 / rows}px, 120px)`,
                         backgroundImage: assets.cellFrame ? `url(${assets.cellFrame})` : undefined,
                         backgroundSize: assets.cellFrame ? "100% 100%" : undefined,
                         backgroundRepeat: "no-repeat",
-                        boxShadow: assets.cellFrame ? undefined : `inset 0 0 22px rgba(0,0,0,0.5)`,
+                        boxShadow: assets.cellFrame
+                          ? gem
+                            ? `0 0 20px ${t.accent}`
+                            : undefined
+                          : `inset 0 0 22px rgba(0,0,0,0.5)`,
                       }}>
-                      {sym(v)}
+                      {gem ? (
+                        <img src={gem} alt="" className="h-full w-full object-contain p-1" />
+                      ) : (
+                        sym(v)
+                      )}
+                      {/* Rolling layer: GSAP fills this while the reel spins. */}
+                      <span aria-hidden className="cell-roll" ref={(el) => { rollRefs.current[idx] = el; }} />
                     </div>
                   );
                 })}
@@ -660,7 +745,7 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
             <div className="flex flex-wrap items-center justify-center gap-2 text-sm">
               <span data-testid="gamble-amount" className="font-mono text-cyan-300">Gamble {gain}</span>
               {MULTIPLIERS.map((m) => {
-                const art = multArt(m);
+                const art = multArt(m, alias);
                 const affordable = wallet >= gain * m;
                 return (
                   <button
@@ -701,7 +786,10 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
       {showPaytable && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-md" onClick={() => setShowPaytable(false)}>
           <div className="w-full max-w-3xl rounded-3xl border bg-[#33478a]/92 p-6 backdrop-blur-xl" style={{ borderColor: scene.rim, backgroundImage: scene.cabinet }} onClick={(e) => e.stopPropagation()}>
-            <h2 className="mb-4 text-center text-2xl font-bold font-cinzel" style={{ color: t.accent }}>SYMBOL PAYTABLE</h2>
+            <h2 className="mb-4 flex items-center justify-center gap-3 text-2xl font-bold font-cinzel" style={{ color: t.accent }}>
+              {assets.logoShort && <img src={assets.logoShort} alt="" className="h-8 w-auto object-contain" />}
+              SYMBOL PAYTABLE
+            </h2>
             <div className="mb-5 flex flex-wrap items-center justify-center gap-2">
               {(["wild", "scatter", "jackpot", "bonus"] as BadgeKind[]).map((k) => (
                 <span key={k} className="flex items-center gap-2 rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-widest" style={{ borderColor: scene.rim }}>

@@ -1,6 +1,8 @@
 // Deterministic per-game theme: every game gets its own palette, reel art and
 // background so no two cabinets look alike and nothing falls back to flat black.
 
+import { FOOD_ART } from "./food-art";
+
 type Theme = {
   // tailwind gradient for card cover / cabinet bg
   cover: string;
@@ -178,16 +180,23 @@ export type AssetPack = {
   wildIndex?: number;
   /** Tile art placed behind each reel symbol (kemet pack). */
   cellFrame?: string;
+  /** Frame art for the reel window backdrop (kemet pack). */
+  emptyFrame?: string;
   /** Real cabinet backdrop art, used instead of a flat colour. */
   bg?: string;
   logo?: string;
+  logoShort?: string;
   bigwin?: string;
   bigwinDecor?: string;
   character?: string;
+  characterFramed?: string;
+  /** Framed symbol tiles, index-aligned with `images`, shown on winning cells. */
+  gemTiles?: string[];
   /** Pixel-art packs get a subtle grid overlay on the reel window. */
   pixelGrid?: boolean;
 };
 
+const KEMET_GEM = ["ankh-gem", "eye-gem", "necklace-gem", "scarab-gem", "wild"];
 const KEMET_IMAGES = [
   `${KEMET}/sym/ankh.webp`,
   `${KEMET}/sym/eye.webp`,
@@ -237,8 +246,16 @@ const BTN_WIDE = [1, 2, 3, 4, 5, 6].map((i) => `${BTN}/wide-${String(i).padStart
 export const MULTIPLIERS = [2, 5, 10] as const;
 export type Multiplier = (typeof MULTIPLIERS)[number];
 
-export function multArt(m: number): string | undefined {
-  return `${MULT}/${m}x.webp`;
+// The pack ships two ×10 plates; games alternate between them.
+const MULT_ART: Record<Multiplier, string[]> = {
+  2: [`${MULT}/2x.webp`],
+  5: [`${MULT}/5x.webp`],
+  10: [`${MULT}/10x.webp`, `${MULT}/10x2.webp`],
+};
+
+export function multArt(m: number, alias = ""): string | undefined {
+  const set = MULT_ART[m as Multiplier];
+  return set ? set[hash(alias) % set.length] : undefined;
 }
 
 /** Feature marks for the paytable and win banners, with per-game variants. */
@@ -263,11 +280,18 @@ const KEMET_PACK: AssetPack = {
   images: KEMET_IMAGES,
   wildIndex: 4,
   cellFrame: `${KEMET}/frame.webp`,
+  /** Empty-cell frame art shown behind the reel window (kemet only). */
+  emptyFrame: `${KEMET}/frame-empty.webp`,
   bg: `${KEMET}/bg.webp`,
   logo: `${KEMET}/logo.webp`,
+  logoShort: `${KEMET}/logo-short.webp`,
   bigwin: `${KEMET}/bigwin.webp`,
   bigwinDecor: `${KEMET}/bigwin-decor.webp`,
   character: `${KEMET}/anubis.webp`,
+  /** The same mascot inside its decorative frame, shown on the cabinet. */
+  characterFramed: `${KEMET}/anubis-frame.webp`,
+  /** Framed symbol tiles used when a line wins (same index as `images`). */
+  gemTiles: KEMET_IMAGES.map((_, i) => `${KEMET}/sym/${KEMET_GEM[i]}.webp`),
 };
 
 const CLASSIC_PACK: AssetPack = { kind: "classic", images: CLASSIC_IMAGES };
@@ -351,11 +375,23 @@ export type SceneStyle =
   /** The game's own theme palette, brightened. */
   | "theme";
 
+export type SceneProp = {
+  src: string;
+  /** Position in the cabinet, in percent. */
+  x: number;
+  y: number;
+  /** Width in CSS pixels. */
+  size: number;
+  /** Tilt in degrees. */
+  tilt: number;
+  /** Seconds of phase offset for the GSAP float. */
+  delay: number;
+};
+
 export type Scene = {
   style: SceneStyle;
   /** Real backdrop art when the pack ships one. */
   image?: string;
-  /** Cabinet background (CSS). */
   cabinet: string;
   /** Reel-window background (CSS) — never flat black. */
   felt: string;
@@ -375,6 +411,8 @@ export type Scene = {
   decoSize?: number;
   /** Where the filigree is strongest (CSS mask). */
   decoMask?: string;
+  /** Floating backdrop props (Pixel Food games get a food-court wall). */
+  props: SceneProp[];
 };
 
 function rgba(hex: string, alpha: number): string {
@@ -568,8 +606,33 @@ export function sceneFor(alias: string, cols: number): Scene {
     }
   }
 
+  // Pixel Food games get a food-court wall: a spread of the pack's other icons
+  // floating behind the cabinet, picked deterministically per game.
+  const props: SceneProp[] = [];
+  if (pack.kind === "pixelfood") {
+    for (let i = 0; i < 14; i++) {
+      const s = (h >> (i % 8)) ^ (i * 2654435761);
+      const spread = (k: number, mod: number) => Math.abs((s >> (k * 5)) % mod);
+      props.push({
+        src: FOOD_ART[Math.abs(s) % FOOD_ART.length],
+        // bias to the cabinet margins where the reel window does not cover it
+        x: spread(0, 9) < 4 ? 1 + spread(1, 11) : 89 + spread(1, 10),
+        y: 3 + spread(2, 88),
+        size: 26 + spread(3, 30),
+        tilt: (spread(4, 24) - 12) / 2,
+        delay: -spread(5, 60) / 10,
+      });
+    }
+    // dedupe so a wall never shows the same dish twice in one row
+    const seen = new Set<string>();
+    for (const p of props) {
+      while (seen.has(p.src)) p.src = FOOD_ART[(FOOD_ART.indexOf(p.src) + 7) % FOOD_ART.length];
+      seen.add(p.src);
+    }
+  }
+
   return {
     style, image, cabinet, felt, halo, rim, aurora: drift, embers,
-    deco, decoFrame, decoSize, decoMask,
+    deco, decoFrame, decoSize, decoMask, props,
   };
 }
