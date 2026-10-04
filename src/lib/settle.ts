@@ -173,7 +173,7 @@ export async function openWithdrawal(args: {
   currency: string;
   details: PayoutDetails;
   accountName: string;
-}): Promise<SettleResult & { wallet?: number }> {
+}): Promise<SettleResult & { wallet?: number; net?: number; fee?: number }> {
   const rate = args.method.rate > 0 ? args.method.rate : 1;
   // The player asks for `amount` in coins; the rails pay `net` in cash after the
   // fee, and the wallet is debited `amount + fee`.
@@ -207,7 +207,10 @@ export async function openWithdrawal(args: {
       status: "pending",
     },
   });
-  return { ok: true, changed: true, wallet: moved.wallet };
+  // `net` and `fee` come back so the caller can tell an operator how much cash to
+  // send without recomputing the rate — the alert that reaches Telegram is the
+  // only place the real figure appears before the back office is opened.
+  return { ok: true, changed: true, wallet: moved.wallet, net, fee };
 }
 
 /** Marks a withdrawal paid out. The wallet was already debited on request. */

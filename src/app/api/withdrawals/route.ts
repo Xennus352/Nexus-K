@@ -12,6 +12,7 @@ import { getSession } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { readArray } from "@/lib/payments/driver";
 import { openWithdrawal } from "@/lib/settle";
+import { alertCash, alertWithdrawal } from "@/server/money-alerts";
 import { parseAmount } from "@/lib/money";
 import { settingBool, settingNumber } from "@/lib/settings";
 import { ref } from "@/lib/ids";
@@ -113,6 +114,24 @@ export async function POST(req: Request) {
     accountName,
   });
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
+
+  // The coins are already reserved, so the request is real whether or not this
+  // succeeds. Fire-and-forget: an operator with Telegram down still sees the row
+  // in /admin/withdrawals.
+  void alertWithdrawal({
+    trx,
+    email: user.email,
+    username: user.username,
+    amount,
+    currency: method.currency || "USD",
+    // The cash figure is `net` — what the player receives after the fee — not the
+    // coin count. Quoting the coins as if they were cash is how an operator ends
+    // up sending MMK 50,000 for a 50,000-coin request at the wrong rate.
+    cash: alertCash(result.net ?? 0, method.currency || "USD"),
+    fee: `${(result.fee ?? 0).toFixed(2)} coins charged`,
+    method: method.name,
+    details,
+  }).catch(() => {});
 
   return NextResponse.json({ ok: true, trx, wallet: result.wallet });
 }

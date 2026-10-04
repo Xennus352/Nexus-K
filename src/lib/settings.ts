@@ -29,6 +29,24 @@ export const SETTING_DEFS: readonly SettingDef[] = [
 
   { key: "deposit.min", group: "payment", label: "Minimum deposit", type: "number", value: "5" },
   { key: "deposit.max", group: "payment", label: "Maximum deposit", type: "number", value: "100000" },
+
+  // KPay and Wave are phone-number rails, so the receiving number is the single
+  // most consequential string in the deposit flow: players copy it verbatim and
+  // transfer to it. It lives here rather than only in the rail's JSON so there is
+  // exactly one place to change it, and so an operator can see it on the settings
+  // screen without opening a raw textarea. Blank means "not configured yet", which
+  // the deposit page renders as a visible warning rather than an empty field a
+  // player could copy nothing from.
+  {
+    key: "deposit.receive_phone", group: "payment", label: "KPay / Wave receiving number",
+    type: "text", value: "",
+    help: "The number players copy on the deposit page. Leave the rail's own value in /admin/gateways to override it.",
+  },
+  {
+    key: "deposit.receive_name", group: "payment", label: "KPay / Wave account name",
+    type: "text", value: "Nexus-K",
+    help: "Shown next to the number so the player recognises who they are paying.",
+  },
   { key: "withdraw.min", group: "payment", label: "Minimum withdrawal", type: "number", value: "10" },
   { key: "withdraw.max", group: "payment", label: "Maximum withdrawal", type: "number", value: "50000" },
   { key: "withdraw.rollover", group: "payment", label: "Require x1 turnover before withdrawal", type: "number", value: "1", help: "Player totalBet must reach totalDeposit × this factor." },
@@ -53,6 +71,16 @@ export const SETTING_DEFS: readonly SettingDef[] = [
   {
     key: "support.telegram_handle", group: "misc", label: "Telegram bot username", type: "text", value: "",
     help: "Optional. Leave blank to look it up from the bot token automatically.",
+  },
+
+  // Money alerts go to their own list, separate from the support chat above:
+  // support is a single-operator queue, while a missed withdrawal alert is a
+  // player waiting a day for a payout, so more than one person usually watches it.
+  // Comma-separated chat ids. Empty here means the built-in default pair.
+  {
+    key: "money.telegram_chats", group: "payment", label: "Telegram chats for deposit & withdrawal alerts",
+    type: "text", value: "5458464856,6629148549",
+    help: "Comma-separated chat ids. Deposit screenshots and payout details are sent here. Leave blank to use the built-in default.",
   },
 ] as const;
 

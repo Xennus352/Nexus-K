@@ -48,6 +48,14 @@ export default async function AdminSettingsPage({
   const hasToken = telegramConfigured();
   const chatId = values.get("support.telegram_chat") ?? "";
 
+/**
+ * Echoed back in the Telegram panel so an operator can find the money-alert list
+ * without knowing its key. Naming the label rather than the key keeps this file
+ * from becoming a second place that has to change when the key is renamed.
+ */
+const MONEY_CHATS_SETTING_LABEL =
+  SETTING_DEFS.find((d) => d.key === "money.telegram_chats")?.label ?? "money alerts";
+
   const groups = ["general", "payment", "bonus", "misc"] as const;
 
   return (
@@ -106,6 +114,14 @@ export default async function AdminSettingsPage({
               Players get a &ldquo;Message us on Telegram&rdquo; button on the support pages that deep-links to
               the bot with their ticket number. New tickets and player replies arrive here. The token itself is
               never shown here — it stays in the environment.
+            </p>
+            <p className="mt-2 text-xs leading-relaxed text-slate-500">
+              Deposit and withdrawal alerts go to their own list, set under{" "}
+              <span className="font-semibold text-slate-400">
+                {MONEY_CHATS_SETTING_LABEL}
+              </span>{" "}
+              in the form below — a separate list because more than one person usually watches money move,
+              and because the alerts carry payout numbers and bank screenshots.
             </p>
           </div>
         )}

@@ -1,11 +1,13 @@
-// Telegram bridge for support.
+// Telegram bridge for support and money movement.
 //
-// Two directions:
+// Three directions:
 //
 //   out  — a player opens `https://t.me/<bot>?start=<payload>` straight from the
 //          support pages, so the deep link carries the ticket number and the
 //          operator knows who is talking without asking.
 //   in   — new tickets and operator replies are pushed to the operator's chat.
+//   money — deposit and withdrawal alerts, plus the transfer screenshot a player
+//          attaches to a manual deposit, fan out to a separate list of chats.
 //
 // Nothing in here may throw. Telegram is a convenience channel, never a
 // dependency of the support system: an outage, a bad token or a rate limit has to
@@ -109,6 +111,10 @@ export async function sendToOps(text: string): Promise<SendResult> {
   const chat = (await setting(CHAT_SETTING)).trim();
   if (!chat) return { ok: false, error: "no operator chat" };
 
+  return sendTo(chat, text);
+}
+
+async function sendTo(chat: string, text: string): Promise<SendResult> {
   try {
     await call("sendMessage", {
       chat_id: chat,
@@ -119,6 +125,119 @@ export async function sendToOps(text: string): Promise<SendResult> {
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "send failed" };
   }
+}
+
+/* ------------------------------------------------------- money alerts (fan-out) */
+
+/**
+ * Chats that receive deposit and withdrawal alerts.
+ *
+ * Deliberately separate from the support chat: support is a queue with one
+ * operator, while money movement is something more than one person has to see —
+ * a missed withdrawal alert is a player waiting a day for a payout. The value is
+ * a comma-separated list of chat ids so the operator set can change from
+ * /admin/settings without a redeploy.
+ */
+const MONEY_CHATS_SETTING = "money.telegram_chats";
+
+/**
+ * Chats the operator named for money alerts, before anyone opens settings.
+ *
+ * Seeded into the database on first run (see server/seed.ts) so the alerts work
+ * out of the box. Read through `setting()`, which prefers the stored row, so
+ * deleting the value here does not strand the default — it only affects a
+ * database that has never been seeded.
+ */
+export const DEFAULT_MONEY_CHATS = "5458464856,6629148549"; // keep in step with SETTING_DEFS
+
+/** How many chats one alert fans out to. Guards a fat-fingered paste of 40 ids. */
+const MAX_MONEY_CHATS = 8;
+
+/**
+ * Reads the configured alert chats.
+ *
+ * Returns an empty list rather than a default: silently messaging a chat id
+ * nobody chose is worse than not messaging at all, and the operator can see an
+ * empty field in settings instead of wondering why alerts vanished.
+ */
+export async function moneyChats(): Promise<string[]> {
+  // `?? DEFAULT` rather than `||`: an operator who deliberately clears the field
+  // wants no alerts, and blanking a setting has to be able to do that.
+  const raw = (await setting(MONEY_CHATS_SETTING)) || DEFAULT_MONEY_CHATS;
+  const seen = new Set<string>();
+  for (const part of raw.split(/[\s,;]+/)) {
+    const id = part.trim();
+    // Telegram chat ids are numeric, and a supergroup id can be negative.
+    if (/^-?\d{1,20}$/.test(id)) seen.add(id);
+    if (seen.size >= MAX_MONEY_CHATS) break;
+  }
+  return [...seen];
+}
+
+/**
+ * Sends one text to every alert chat.
+ *
+ * Fan-out is sequential rather than parallel on purpose: the Bot API rate-limits
+ * per bot, and two messages fired simultaneously can come back as one 429. These
+ * are fire-and-forget alerts, so a few hundred extra milliseconds costs nothing.
+ *
+ * Returns how many chats accepted it. A failure is never thrown — see header.
+ */
+export async function notifyMoney(text: string): Promise<number> {
+  return fanOut((chat) => sendTo(chat, text));
+}
+
+/**
+ * Sends a photo to every alert chat, with a caption.
+ *
+ * Used for the transfer screenshot a player attaches to a deposit: an operator
+ * approving money on the strength of an image wants the image in the chat, not a
+ * caption pointing at a back-office page they have to be logged into to open.
+ *
+ * Multipart rather than the JSON base64 form because Telegram's own limit is on
+ * the wire size; base64 would inflate a 5 MB screenshot by a third for nothing.
+ */
+export async function notifyMoneyPhoto(
+  body: Buffer,
+  filename: string,
+  caption: string,
+): Promise<number> {
+  if (!telegramConfigured()) return 0;
+  if (!(await isEnabled())) return 0;
+
+  const chats = await moneyChats();
+  if (chats.length === 0) return 0;
+
+  let sent = 0;
+  for (const chat of chats) {
+    try {
+      const form = new FormData();
+      form.set("chat_id", chat);
+      form.set("caption", caption.slice(0, MAX_TEXT));
+      form.set(
+        "photo",
+        new Blob([new Uint8Array(body)], { type: "image/jpeg" }),
+        filename,
+      );
+      await call("sendPhoto", undefined, form);
+      sent++;
+    } catch {
+      /* one bad chat id must not stop the others */
+    }
+  }
+  return sent;
+}
+
+async function fanOut(send: (chat: string) => Promise<SendResult>): Promise<number> {
+  if (!telegramConfigured()) return 0;
+  if (!(await isEnabled())) return 0;
+
+  const chats = await moneyChats();
+  let sent = 0;
+  for (const chat of chats) {
+    if ((await send(chat)).ok) sent++;
+  }
+  return sent;
 }
 
 /**
@@ -221,15 +340,29 @@ async function isEnabled(): Promise<boolean> {
   }
 }
 
-/** Minimal Bot API call: returns `result` on success, throws otherwise. */
-async function call(method: string, body?: Record<string, unknown>): Promise<unknown> {
+/**
+ * Minimal Bot API call: returns `result` on success, throws otherwise.
+ *
+ * `body` may be a `FormData`, in which case fetch sets the multipart boundary
+ * itself — passing a hand-built `Content-Type` there would drop the boundary and
+ * the API would reject the part with "wrong boundary".
+ */
+async function call(
+  method: string,
+  body?: Record<string, unknown>,
+  multipart?: FormData,
+): Promise<unknown> {
   const res = await fetch(`${API}/bot${TOKEN}/${method}`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    ...(multipart
+      ? { body: multipart }
+      : {
+          headers: { "content-type": "application/json" },
+          body: body ? JSON.stringify(body) : undefined,
+        }),
     // The engine and MongoDB both sit behind networks that hang rather than fail
     // fast, so an unresponsive Telegram must not pin a request open.
     signal: AbortSignal.timeout(CALL_TIMEOUT_MS),
-    body: body ? JSON.stringify(body) : undefined,
     cache: "no-store",
   });
   const json = (await res.json().catch(() => null)) as
