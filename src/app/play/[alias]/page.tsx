@@ -4,6 +4,7 @@ import { gameAccess } from "@/lib/games";
 import { siteMaintenance } from "@/lib/maintenance";
 import GameNotice from "@/components/GameNotice";
 import MaintenanceScreen from "@/components/MaintenanceScreen";
+import Player from "./Player";
 
 /**
  * The game screen, deliberately outside the `(app)` chrome.
@@ -36,18 +37,9 @@ export default async function PlayPage({
     );
   }
 
-  // Proxy the Go engine game via the engine's web client
-  const engineUrl = process.env.SLOTOPOL_URL ?? "http://localhost:8080";
-  const gameUrl = `${engineUrl}/play/${encodeURIComponent(gameKey)}?uid=${s.uid}&token=${s.token}`;
-
   return (
     <div className="flex h-[100dvh] w-full overflow-hidden bg-[#0b1020]">
-      <iframe
-        src={gameUrl}
-        className="w-full h-full border-0"
-        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-        title="Game"
-      />
+      <Player uid={s.uid} alias={gameKey} />
     </div>
   );
 }

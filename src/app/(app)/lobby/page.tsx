@@ -26,13 +26,22 @@ export default async function Lobby({
   let engineGames: EngineGame[] = [];
   let engineError = false;
   try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    console.log("[LOBBY] Fetching from engine:", ENGINE);
     const res = await fetch(`${ENGINE}/game/list?inc=all&exc=~all&sort=true`, {
       cache: "no-store",
+      signal: controller.signal,
     });
-    engineGames = ((await res.json()).list ?? [])
+    clearTimeout(timeout);
+    const data = await res.json();
+    console.log("[LOBBY] Engine response status:", res.status, "total games:", data.list?.length);
+    engineGames = (data.list ?? [])
       .filter((g: GameInfo) => g.gt === 1)
-      .map((g: GameInfo) => ({ prov: g.prov, name: g.name, sx: g.sx, sy: g.sy, rtp: g.rtp }));
-  } catch {
+      .map((g: GameInfo) => ({ prov: g.prov, name: g.name, sx: g.sx, sy: g.sy, rtp: g.rtp, gt: g.gt, ln: g.ln }));
+    console.log("[LOBBY] Filtered to", engineGames.length, "slot games");
+  } catch (e) {
+    console.error("[LOBBY] Engine fetch failed:", e instanceof Error ? e.message : String(e));
     engineError = true;
   }
 
@@ -40,6 +49,7 @@ export default async function Lobby({
   const flags = await allFlags();
   const { games: merged, providers } = buildLobby(engineGames, flags);
   const filtered = merged.filter((g) => matchesLobbyFilter(g, q ?? "", prov ?? ""));
+  console.log("[LOBBY] Merged games:", merged.length, "filtered:", filtered.length, "q:", q, "prov:", prov);
 
   // Asked here rather than inside `LobbyBoot`, which is the only way a warm lobby
   // can arrive unwrapped. See `src/lib/boot-flag.ts` for why this is a cookie and
