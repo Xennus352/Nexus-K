@@ -42,6 +42,10 @@ export default async function DepositPage() {
     minAmount: g.minAmount,
     maxAmount: g.maxAmount,
     crypto: g.crypto,
+    // Manual rails carry the account to transfer to, and the player is sent
+    // straight to them with a copy button rather than having to find them.
+    rails: g.rails,
+    instructions: g.instructions,
   }));
 
   const pending = await prisma.deposit.findMany({
@@ -92,16 +96,10 @@ export default async function DepositPage() {
         />
       </Panel>
 
-      <Panel title="NEED HELP?">
-        <p className="text-sm text-slate-400">
-          Every deposit has a unique reference number. Include it in your transfer so the funds can
-          be matched automatically — and if a transfer goes missing, open a ticket with the
-          reference.
-        </p>
-        <ButtonLink href="/support/new" tone="ghost" className="mt-3">
-          Contact support
-        </ButtonLink>
-      </Panel>
+      <p className="text-xs text-slate-500">
+        Every deposit carries a reference number, and an operator approves it once the transfer
+        clears. A screenshot alone is enough — the reference is matched from it.
+      </p>
     </div>
   );
 }

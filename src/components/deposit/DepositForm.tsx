@@ -1,8 +1,10 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Button, Field, Notice, inputClass } from "@/components/ui";
+import CopyButton from "@/components/CopyButton";
+import { MAX_SLIP_BYTES, MAX_SLIP_MB, isSlipMime } from "@/lib/slips";
 
 export type GatewayChoice = {
   id: string;
@@ -15,14 +17,20 @@ export type GatewayChoice = {
   minAmount: number;
   maxAmount: number;
   crypto: boolean;
+  /** Manual rails only: the account details the player transfers to. */
+  rails: { label: string; value: string; art?: string }[];
+  /** Manual rails only: free text shown under the rails. */
+  instructions: string;
 };
 
 const DRIVER_HINT: Record<string, string> = {
-  manual: "Transfer the exact amount, quote your reference, and an operator approves it.",
+  manual: "Transfer the exact amount to the account below, then attach the screenshot.",
   stripe: "Visa, Mastercard, Apple Pay and more — you are redirected to Stripe.",
   paypal: "Pay with your PayPal balance, card or bank account.",
   nowpayments: "Send crypto to the address shown; credited once the network confirms.",
 };
+
+const MAX_MB = MAX_SLIP_MB;
 
 function Logo({ gateway, className = "h-9 w-9" }: { gateway: GatewayChoice; className?: string }) {
   if (gateway.logo) {
@@ -69,19 +77,51 @@ export default function DepositForm({
   const [amount, setAmount] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+  const [fileError, setFileError] = useState("");
+  const fileInput = useRef<HTMLInputElement>(null);
 
   const railMin = Math.max(min, selected?.minAmount ?? min);
   const railMax = Math.min(max, selected?.maxAmount ?? max);
+  // A manual rail is the only case where the player is the one moving money, so
+  // it is the only case where a screenshot is the evidence.
+  const manual = selected?.driver === "manual";
+
+  function chooseFile(next: File | null) {
+    setFileError("");
+    if (!next) {
+      setFile(null);
+      return;
+    }
+    // The server sniffs magic bytes regardless; this is here so a player finds out
+    // from a wrong file rather than after uploading several megabytes of it.
+    if (!isSlipMime(next.type)) {
+      setFile(null);
+      setFileError("That file is not a PNG, JPEG, WebP or GIF image.");
+      return;
+    }
+    if (next.size > MAX_SLIP_BYTES) {
+      setFile(null);
+      setFileError(`Screenshot must be under ${MAX_MB} MB.`);
+      return;
+    }
+    setFile(next);
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
+    if (manual && !file) {
+      setFileError("Attach a screenshot of your transfer so an operator can match it.");
+      return;
+    }
     setBusy(true);
     try {
       const body = new FormData();
       body.set("gatewayId", selectedId);
       body.set("currency", currency);
       body.set("amount", amount);
+      if (file) body.set("slip", file);
       const res = await fetch("/api/payments/checkout", { method: "POST", body });
       const json = (await res.json().catch(() => ({}))) as {
         redirect?: string;
@@ -111,6 +151,9 @@ export default function DepositForm({
 
   return (
     <form onSubmit={submit} className="space-y-5">
+      {/* The rails below carry data-copy; this mounts the delegated handler once
+          for the whole page rather than giving each rail its own state. */}
+      <CopyButton />
       <div>
         <span className="mb-2 block text-xs font-semibold tracking-wide text-slate-300">
           PAYMENT METHOD
@@ -182,10 +225,114 @@ export default function DepositForm({
         </Field>
       </div>
 
+      {/* The account to transfer to, on the same screen as the form rather than
+          one page deeper: copying a phone number and then typing an amount is the
+          order every mobile payment app uses, and it is the order that leaves the
+          fewest abandoned transfers. */}
+      {manual && selected && selected.rails.length > 0 && (
+        <div className="rounded-2xl border border-emerald-500/25 bg-emerald-950/15 p-4">
+          <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-300">
+            Transfer to
+          </div>
+          <p className="mb-3 text-xs text-slate-400">
+            Send the amount above to one of these, then attach the screenshot below.
+          </p>
+          <ul className="space-y-2">
+            {selected.rails.map((rail, i) => (
+              <li
+                key={`${rail.label}-${i}`}
+                className="flex items-center gap-3 rounded-xl border border-white/10 bg-[#2b3a6e] p-3"
+              >
+                {rail.art && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={rail.art} alt="" aria-hidden className="h-9 w-9 shrink-0 rounded object-contain" />
+                )}
+                <div className="min-w-0">
+                  <div className="text-[10px] uppercase tracking-widest text-slate-400">
+                    {rail.label}
+                  </div>
+                  {/* break-all, not truncate: a phone number is the one value here
+                      that must never be cut off, or the copy button copies a
+                      fragment of it. */}
+                  <div className="break-all font-mono text-sm font-semibold text-slate-100">
+                    {rail.value.trim() === "" ? (
+                      <span className="font-sans font-semibold text-amber-300">
+                        Not configured yet — please contact support.
+                      </span>
+                    ) : (
+                      rail.value
+                    )}
+                  </div>
+                </div>
+                {/* No copy button without a value: it would put an empty string on
+                    the clipboard, which reads as success and transfers nothing. */}
+                {rail.value.trim() !== "" && (
+                  <button
+                    type="button"
+                    className="ml-auto shrink-0 cursor-pointer rounded-lg border border-emerald-400/30 bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-200 transition hover:bg-emerald-500/20"
+                    data-copy={rail.value}
+                  >
+                    Copy
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+          {selected.instructions && (
+            <p className="mt-3 text-xs text-slate-400">{selected.instructions}</p>
+          )}
+        </div>
+      )}
+
+      {manual && (
+        <Field
+          label="TRANSFER SCREENSHOT"
+          hint={`PNG, JPEG, WebP or GIF, up to ${MAX_MB} MB. An operator cannot match your transfer without it.`}
+        >
+          <div className="space-y-2">
+            <input
+              ref={fileInput}
+              type="file"
+              accept="image/png,image/jpeg,image/webp,image/gif"
+              onChange={(e) => chooseFile(e.target.files?.[0] ?? null)}
+              className="block w-full cursor-pointer text-xs text-slate-400 file:mr-3 file:cursor-pointer file:rounded-lg file:border-0 file:bg-sky-500/15 file:px-4 file:py-2.5 file:text-sm file:font-bold file:text-sky-200 transition hover:file:bg-sky-500/25"
+            />
+            {file && (
+              <div className="flex items-center gap-3 rounded-xl border border-white/10 bg-[#2b3a6e] p-3">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={URL.createObjectURL(file)}
+                  alt="Selected transfer screenshot"
+                  onLoad={(e) => URL.revokeObjectURL(e.currentTarget.src)}
+                  className="h-16 w-16 shrink-0 rounded-lg border border-white/10 object-cover"
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-xs text-slate-200">{file.name}</div>
+                  <div className="text-[11px] text-slate-500">
+                    {(file.size / 1024).toFixed(0)} KB
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFile(null);
+                    if (fileInput.current) fileInput.current.value = "";
+                  }}
+                  className="shrink-0 rounded-lg border border-white/10 px-3 py-1.5 text-xs font-semibold text-slate-300 transition hover:bg-white/10"
+                >
+                  Remove
+                </button>
+              </div>
+            )}
+            {fileError && <p className="text-xs font-semibold text-rose-300">{fileError}</p>}
+          </div>
+        </Field>
+      )}
+
       {error && <Notice>{error}</Notice>}
 
-      <Button type="submit" disabled={busy} className="w-full sm:w-auto">
-        {busy ? "Starting…" : `Deposit ${selected?.name ?? ""}`}
+      <Button type="submit" disabled={busy || (manual && !file)} className="w-full sm:w-auto">
+        {busy ? "Sending…" : manual ? "Send proof of transfer" : `Deposit ${selected?.name ?? ""}`}
       </Button>
       <button
         type="button"

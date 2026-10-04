@@ -6,6 +6,8 @@
 
 import { prisma } from "@/lib/prisma";
 import { driverFor, readArray, readConfig } from "@/lib/payments/driver";
+import { manualRails } from "@/lib/payments/manual";
+import { setting } from "@/lib/settings";
 import { fiatCurrencies, isCrypto } from "@/lib/money";
 
 export type GatewayOption = {
@@ -26,6 +28,16 @@ export type GatewayOption = {
   /** Currencies the rail accepts, parsed from the JSON column. */
   currencies: string[];
   crypto: boolean;
+  /**
+   * Manual rails only: the accounts to transfer to, and any free-text note.
+   *
+   * Projected rather than re-read in the page so the deposit form and the
+   * deposit detail page render the same account list from the same call — they
+   * disagreed before, because one went through `manualRails()` and the other read
+   * nothing at all.
+   */
+  rails: { label: string; value: string; art?: string }[];
+  instructions: string;
 };
 
 type GatewayRow = {
@@ -44,6 +56,8 @@ type GatewayRow = {
   config: string;
   status: boolean;
   sort: number;
+  instructions: string;
+  rails: string;
 };
 
 function project(row: GatewayRow): GatewayOption & { configured: boolean } {
@@ -62,6 +76,11 @@ function project(row: GatewayRow): GatewayOption & { configured: boolean } {
     fixedFee: row.fixedFee,
     currencies: readArray<string>(row.currencies),
     crypto: isCrypto(row.currency),
+    // Parsed here rather than in each caller. `manualRails` handles the legacy
+    // `Label: value` instructions format, so an old row that predates the rails
+    // column still shows something.
+    rails: row.driver === "manual" ? manualRails(row) : [],
+    instructions: row.driver === "manual" ? row.instructions : "",
     // A rail with no driver at all (a legacy PHP alias we do not implement) can
     // never take a payment, so it counts as unconfigured regardless of status.
     configured: driver ? driver.configured(readConfig(row.config)) : false,
@@ -74,7 +93,65 @@ export async function playerGateways(): Promise<GatewayOption[]> {
     where: { status: true },
     orderBy: [{ sort: "asc" }, { name: "asc" }],
   });
-  return rows.map(project).filter((g) => g.configured);
+  const projected = rows.map(project).filter((g) => g.configured);
+  // One settings read for every rail, not one per rail.
+  const [phone, holder] = await receivingDetails();
+  return projected.map((g) => ({ ...g, rails: fillPhoneRails(g.rails, phone, holder) }));
+}
+
+/**
+ * The KPay/Wave receiving number and account name.
+ *
+ * Read here rather than baked into the rail's JSON at seed time because the
+ * number is the one value in the deposit flow that has to be right: players copy
+ * it verbatim. Having it in settings means one edit in one screen changes every
+ * place it appears, instead of a hand-edited JSON blob that can drift.
+ */
+async function receivingDetails(): Promise<[string, string]> {
+  const [phone, holder] = await Promise.all([
+    setting("deposit.receive_phone"),
+    setting("deposit.receive_name"),
+  ]);
+  return [phone.trim(), holder.trim()];
+}
+
+/**
+ * Fills blank rail values from the receiving settings.
+ *
+ * Only blanks are filled. A rail that has its own value is left exactly as the
+ * operator typed it, so a rail can always override the global setting — that is
+ * what makes this a fallback rather than a rewrite, and what lets the generic
+ * "Bank Account" rail keep its own account details.
+ */
+export function fillPhoneRails(
+  rails: { label: string; value: string; art?: string }[],
+  phone: string,
+  holder: string,
+): { label: string; value: string; art?: string }[] {
+  if (rails.every((r) => r.value.trim() !== "")) return rails;
+  return rails.map((r) =>
+    r.value.trim() !== ""
+      ? r
+      : { ...r, value: phone ? (holder ? `${phone} · ${holder}` : phone) : "" },
+  );
+}
+
+/**
+ * Manual rails with blank values resolved against the receiving settings.
+ *
+ * Exported so the deposit detail page — which holds the raw gateway row, not a
+ * `GatewayOption` — renders the same account list the form did. It used to call
+ * `manualRails()` directly, so a deposit opened from a stale tab could show an
+ * empty number the form had shown correctly.
+ */
+export async function railsForDeposit(gateway: {
+  driver: string;
+  rails: string;
+  instructions: string;
+}): Promise<{ label: string; value: string; art?: string }[]> {
+  if (gateway.driver !== "manual") return [];
+  const [phone, holder] = await receivingDetails();
+  return fillPhoneRails(manualRails(gateway), phone, holder);
 }
 
 /** Every rail, for the admin gateway screen. */

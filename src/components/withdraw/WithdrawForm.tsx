@@ -85,6 +85,46 @@ export default function WithdrawForm({
     return <Notice tone="info">No payout method is available yet. Please contact support.</Notice>;
   }
 
+  /**
+   * Requests with nothing in them.
+   *
+   * Checked here rather than trusted to the browser's `required`, because the
+   * submit path builds its own FormData and the amount is typed by hand with a
+   * comma-tolerant parse on the server. The MAX shortcut in particular can put a
+   * value on screen that the method's own ceiling will reject, and finding that
+   * out only after pressing the button is the worst place to find it.
+   */
+  const missingRequired = method
+    ? method.fields
+        .filter((f) => !f.optional && !(details[f.key] ?? "").trim())
+        .map((f) => f.label)
+    : [];
+  // Compared against `coins`, not the raw string: `amount` is still whatever the
+  // player typed, and `"9" < 10` is false while `9 > 10` is false too — but
+  // `"100" < 10` is true, so a numeric-looking string would sail past a string
+  // comparison and reach the server, which would then reject it.
+  const overMax = valid && method ? coins > method.maxAmount : false;
+  const underMin = valid && method ? coins < method.minAmount : false;
+  const overBalance = valid && coins > wallet;
+  const blocked =
+    !valid ||
+    missingRequired.length > 0 ||
+    overMax ||
+    underMin ||
+    overBalance;
+
+  const blocker = !valid
+    ? "Enter an amount."
+    : underMin
+      ? `The minimum for ${method?.name} is ${method?.minAmount.toLocaleString()} coins.`
+      : overMax
+        ? `The maximum for ${method?.name} is ${method?.maxAmount.toLocaleString()} coins.`
+        : overBalance
+          ? `That is more than your balance of ${wallet.toLocaleString()} coins.`
+          : missingRequired.length > 0
+            ? `Fill in: ${missingRequired.join(", ")}.`
+            : "";
+
   return (
     <form onSubmit={submit} className="space-y-5">
       <div>
@@ -151,23 +191,33 @@ export default function WithdrawForm({
         <div className="rounded-xl border border-white/10 bg-[#2b3a6e] p-4 text-sm">
           <Row label="Fee" value={`${fee.toFixed(2)} coins`} />
           <Row label="Reserved from balance" value={`${charge.toFixed(2)} coins`} strong />
-          <Row
-            label={`You receive (${method.currency})`}
-            value={payout.toFixed(2)}
-            strong
-          />
+          <Row label={`You receive (${method.currency})`} value={payout.toFixed(2)} strong />
         </div>
       )}
 
       {method && (
         <div className="grid gap-4 sm:grid-cols-2">
           {method.fields.map((f) => (
-            <Field key={f.key} label={`${f.label.toUpperCase()}${f.optional ? " (OPTIONAL)" : ""}`}>
+            <Field
+              key={f.key}
+              label={`${f.label.toUpperCase()}${f.optional ? " (OPTIONAL)" : ""}`}
+              hint={
+                !f.optional && !(details[f.key] ?? "").trim()
+                  ? "Required — the operator pays out to exactly this."
+                  : undefined
+              }
+            >
               <input
                 className={inputClass}
+                // `text` with an inputMode is right for a phone number or an
+                // account number: `tel` makes some mobile keyboards drop the
+                // digits on paste, and `number` mangles anything with a country
+                // code or a leading zero — which a KPay number has both of.
+                type="text"
+                inputMode="tel"
+                autoComplete="off"
                 value={details[f.key] ?? ""}
                 onChange={(e) => setDetails((d) => ({ ...d, [f.key]: e.target.value }))}
-                required={!f.optional}
               />
             </Field>
           ))}
@@ -175,10 +225,16 @@ export default function WithdrawForm({
       )}
 
       {error && <Notice>{error}</Notice>}
+      {blocker && <p className="text-xs font-semibold text-amber-300/90">{blocker}</p>}
 
-      <Button type="submit" disabled={busy || !valid}>
+      <Button type="submit" disabled={busy || blocked}>
         {busy ? "Submitting…" : "Request payout"}
       </Button>
+      <p className="text-xs text-slate-500">
+        Sending this also alerts the operator&apos;s Telegram, with your amount and{" "}
+        {method?.name ?? "payout"} number, so the payout is not waiting on someone to notice the
+        queue.
+      </p>
     </form>
   );
 }

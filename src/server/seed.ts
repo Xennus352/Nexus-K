@@ -44,6 +44,16 @@ type SeedGateway = {
   rails?: { label: string; value: string; art?: string }[];
 };
 
+/**
+ * The receiving accounts a player transfers to.
+ *
+ * KPay and Wave are phone-number rails whose value is intentionally left blank
+ * here: the casino's real KPay number is an operator decision, and a placeholder
+ * in a rail is worse than an empty one — a player would copy it and send real
+ * money to nobody. The blank is filled at render time from the
+ * `deposit.receive_phone` / `deposit.receive_name` settings (see
+ * `fillPhoneRails`), and the deposit page says plainly when neither is set.
+ */
 const GATEWAYS: SeedGateway[] = [
   {
     alias: "Manual",
@@ -61,6 +71,46 @@ const GATEWAYS: SeedGateway[] = [
       { label: "Bank", value: "Nexus-K Trust Bank · 0912 345 678 · Nexus-K Ltd", art: "/gfx/payments/01.webp" },
       { label: "Wire / SWIFT", value: "NEXUSK LTD · BIC NXKGB2L · Sort 20-00-00", art: "/gfx/payments/06.webp" },
       { label: "E-Wallet", value: "Wallet ID must match your registered email", art: "/gfx/payments/12.webp" },
+    ],
+  },
+  {
+    // KPay and Wave are the two mobile wallets most of this audience uses, and
+    // both are phone-number rails: the player copies a number, opens the wallet
+    // app, and sends. They ship enabled because they are the rails the operator
+    // actually intends to be paid on; Stripe/PayPal ship disabled because they
+    // need credentials first.
+    alias: "KPay",
+    name: "KPay",
+    driver: "manual",
+    logo: "/gfx/payments/12.webp",
+    currency: "MMK",
+    currencies: ["MMK"],
+    minAmount: 10,
+    maxAmount: 5000000,
+    percentFee: 0,
+    status: true,
+    instructions:
+      "Open KPay, choose Transfer, enter the number below and send the exact amount. Then attach the screenshot of the confirmation here.",
+    rails: [
+      // Blank on purpose — see the note above the GATEWAYS array.
+      { label: "KPay number", value: "", art: "/gfx/payments/12.webp" },
+    ],
+  },
+  {
+    alias: "Wave",
+    name: "Wave",
+    driver: "manual",
+    logo: "/gfx/payments/12.webp",
+    currency: "MMK",
+    currencies: ["MMK"],
+    minAmount: 10,
+    maxAmount: 5000000,
+    percentFee: 0,
+    status: true,
+    instructions:
+      "Open Wave, choose Send Money, enter the number below and send the exact amount. Then attach the screenshot of the confirmation here.",
+    rails: [
+      { label: "Wave number", value: "", art: "/gfx/payments/12.webp" },
     ],
   },
   {
@@ -164,6 +214,44 @@ const WITHDRAW_METHODS = [
       { key: "accountName", label: "Wallet holder name", type: "text" },
       { key: "walletId", label: "Wallet ID / phone number", type: "text" },
       { key: "provider", label: "Provider", type: "text" },
+    ],
+  },
+  {
+    // The two mobile wallets the operator actually pays out on. Separate from
+    // the generic "E-Wallet" above because they are phone-number rails with a
+    // currency of MMK rather than USD — folding them in would have meant either a
+    // wrong currency or a free-text provider field the player has to guess at.
+    //
+    // Limits are in coins, where one coin is one MMK at the default rate, and are
+    // deliberately low rather than matching a real MMK payout floor: a wallet
+    // holding a few thousand coins could never request one, so the rail would be
+    // offered on the form and then refuse every amount. Raise them at
+    // /admin/withdraw-methods once there is enough volume to justify it.
+    name: "KPay",
+    code: "kpay",
+    logo: "/gfx/payments/12.webp",
+    currency: "MMK",
+    minAmount: 20,
+    maxAmount: 20000,
+    percentFee: 0,
+    fixedFee: 0,
+    fields: [
+      { key: "accountName", label: "Your KPay account name", type: "text" },
+      { key: "walletId", label: "KPay number", type: "text" },
+    ],
+  },
+  {
+    name: "Wave",
+    code: "wave",
+    logo: "/gfx/payments/12.webp",
+    currency: "MMK",
+    minAmount: 20,
+    maxAmount: 20000,
+    percentFee: 0,
+    fixedFee: 0,
+    fields: [
+      { key: "accountName", label: "Your Wave account name", type: "text" },
+      { key: "walletId", label: "Wave number", type: "text" },
     ],
   },
   {

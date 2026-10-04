@@ -1,10 +1,12 @@
+import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { getSession } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
-import { manualRails } from "@/lib/payments/manual";
+import { railsForDeposit } from "@/lib/gateways";
 import { currency } from "@/lib/money";
 import { ButtonLink, Empty, Notice, PageTitle, Panel, Stat, StatusBadge, formatDate } from "@/components/ui";
 import DepositStatus from "@/components/deposit/DepositStatus";
+import CopyButton from "@/components/CopyButton";
 
 export const dynamic = "force-dynamic";
 
@@ -29,7 +31,10 @@ export default async function DepositDetail({
   if (!deposit || deposit.userId !== user.id) notFound();
 
   const c = currency(deposit.currency);
-  const rails = deposit.gateway ? manualRails(deposit.gateway) : [];
+  // Resolved the same way the form did, so a number copied from here always
+  // matches the one the player was shown when they started the transfer.
+  const rails = deposit.gateway ? await railsForDeposit(deposit.gateway) : [];
+  const hasSlip = Boolean(deposit.slipPath);
   const data = (() => {
     try {
       return JSON.parse(deposit.data) as Record<string, unknown>;
@@ -42,6 +47,8 @@ export default async function DepositDetail({
 
   return (
     <div className="space-y-6">
+      {/* Enables the delegated [data-copy] handler on this page's rail values. */}
+      <CopyButton />
       <PageTitle
         title={`Deposit ${deposit.trx}`}
         subtitle={`${deposit.gatewayAlias} · ${formatDate(deposit.createdAt)}`}
@@ -88,7 +95,22 @@ export default async function DepositDetail({
             </li>
             <li className="flex gap-3">
               <span className="font-mono font-bold text-sky-300">3</span>
-              <span>An operator approves the deposit once the funds clear.</span>
+              <span>
+                {hasSlip ? (
+                  <>
+                    Your screenshot is with the operator. They check it against the amount and
+                    credit the deposit once the transfer clears.
+                  </>
+                ) : (
+                  <>
+                    Attach the transfer screenshot from the{" "}
+                    <Link href="/deposit" className="font-semibold text-sky-300 underline">
+                      deposit page
+                    </Link>{" "}
+                    — the operator cannot match your transfer without it.
+                  </>
+                )}
+              </span>
             </li>
           </ol>
 
@@ -107,16 +129,31 @@ export default async function DepositDetail({
                     <div className="text-[10px] uppercase tracking-widest text-slate-400">
                       {rail.label}
                     </div>
-                    <div className="truncate font-mono text-sm text-slate-100">{rail.value}</div>
+                    {/* break-all rather than truncate: a phone number is the one value
+                      here that must never be clipped, or the Copy button copies a
+                      fragment of it and the transfer goes to the wrong account. */}
+                  <div className="break-all font-mono text-sm font-semibold text-slate-100">
+                    {rail.value.trim() === "" ? (
+                      <span className="font-sans font-semibold text-amber-300">
+                        Not configured yet — please contact support.
+                      </span>
+                    ) : (
+                      rail.value
+                    )}
                   </div>
-                  <button
-                    type="button"
-                    className="ml-auto shrink-0 rounded-lg border border-white/10 px-3 py-1.5 text-xs font-semibold text-slate-300 hover:bg-white/10"
-                    // Copies to clipboard without a client library.
-                    data-copy={rail.value}
-                  >
-                    Copy
-                  </button>
+                  </div>
+                  {/* Hidden for a blank value: it would copy an empty string,
+                      which looks like it worked and transfers nothing. */}
+                  {rail.value.trim() !== "" && (
+                    <button
+                      type="button"
+                      className="ml-auto shrink-0 cursor-pointer rounded-lg border border-white/10 px-3 py-1.5 text-xs font-semibold text-slate-300 hover:bg-white/10"
+                      // Copies to clipboard without a client library.
+                      data-copy={rail.value}
+                    >
+                      Copy
+                    </button>
+                  )}
                 </li>
               ))}
             </ul>
@@ -153,6 +190,12 @@ export default async function DepositDetail({
           <Row label="Opened" value={formatDate(deposit.createdAt)} />
           {deposit.paidAt && <Row label="Credited" value={formatDate(deposit.paidAt)} />}
           {deposit.reference && <Row label="Provider reference" value={deposit.reference} mono />}
+          {deposit.slipAt && (
+            <Row
+              label="Screenshot"
+              value={`${deposit.slipName || "attached"}${deposit.slipAt ? ` · ${formatDate(deposit.slipAt)}` : ""}`}
+            />
+          )}
           {deposit.adminNote && <Row label="Note" value={deposit.adminNote} />}
         </dl>
       </Panel>

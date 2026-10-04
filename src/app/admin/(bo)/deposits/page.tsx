@@ -17,6 +17,7 @@ import {
   formatDate,
 } from "@/components/ui";
 import { Flash, Pager, RowLink, TextField, pageOf } from "@/components/admin/parts";
+import SlipThumb from "@/components/admin/SlipThumb";
 import { approveDeposit, rejectDeposit } from "@/server/admin-actions";
 
 export const dynamic = "force-dynamic";
@@ -123,6 +124,11 @@ export default async function AdminDepositsPage({
                 </td>
                 <td className="max-w-[190px] truncate px-4 py-3 text-xs text-slate-400">
                   <RowLink href={`/admin/users/${d.userId}`}>{d.user.email}</RowLink>
+                  {d.slipAt && (
+                    <div className="text-[10px] text-slate-500">
+                      slip {formatDate(d.slipAt)}
+                    </div>
+                  )}
                 </td>
                 <td className="px-4 py-3 text-xs text-slate-400">{d.gatewayAlias || "—"}</td>
                 <td className="px-4 py-3 font-mono text-xs text-slate-200">{fmt(d.amount, d.currency)}</td>
@@ -134,6 +140,13 @@ export default async function AdminDepositsPage({
                   <StatusBadge status={d.status} />
                   {d.adminNote && (
                     <div className="mt-1 max-w-[220px] text-[10px] text-slate-500">{d.adminNote}</div>
+                  )}
+                  {/* The screenshot is the evidence for the whole row, so it goes
+                      next to the status rather than on a separate page. */}
+                  {d.slipPath && (
+                    <div className="mt-2 w-52">
+                      <SlipThumb trx={d.trx} name={d.slipName || "transfer screenshot"} />
+                    </div>
                   )}
                 </td>
                 <td className="px-4 py-3 text-xs text-slate-500">{formatDate(d.createdAt)}</td>
@@ -149,7 +162,7 @@ export default async function AdminDepositsPage({
         <Panel title="PENDING QUEUE">
           <p className="mb-4 text-xs text-slate-400">
             Approving credits the wallet immediately. Cancelling does nothing to the wallet — nothing
-            was ever credited.
+            was ever credited. Check the player&apos;s screenshot against the amount before approving.
           </p>
           <div className="space-y-4">
             {rows
@@ -164,6 +177,11 @@ export default async function AdminDepositsPage({
                       <span className="font-mono text-emerald-300">{d.coins.toLocaleString()} coins</span>
                     </span>
                   </div>
+                  {d.slipPath && (
+                    <div className="mb-3 max-w-xs">
+                      <SlipThumb trx={d.trx} name={d.slipName || "transfer screenshot"} />
+                    </div>
+                  )}
                   <div className="grid gap-4 lg:grid-cols-2">
                     <form action={approveDeposit} className="space-y-2">
                       <input type="hidden" name="id" value={d.id} />
