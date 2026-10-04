@@ -9,31 +9,56 @@
 // empty submission keeps whatever is stored.
 
 import { prisma } from "@/lib/prisma";
-import { allGateways } from "@/lib/gateways";
+import { allGateways, PLAYER_RAILS } from "@/lib/gateways";
 import { requireAdmin } from "@/lib/admin-session";
 import { allDrivers, driverFor, driverName, readArray, readConfig } from "@/lib/payments/driver";
 import { fiatCurrencies } from "@/lib/money";
 import { Button, Empty, PageTitle, Panel } from "@/components/ui";
-import { Flash, NumField, TextField, Toggle } from "@/components/admin/parts";
+import { Flash, NumField, PAGE_SIZE, Pager, Tabs, TextField, Toggle, pageOf } from "@/components/admin/parts";
 import { saveGateway, toggleGateway } from "@/server/admin-actions";
 
 export const dynamic = "force-dynamic";
 
+const TABS = ["all", "live", "off", "player"] as const;
+type Tab = (typeof TABS)[number];
+
 export default async function AdminGatewaysPage({
   searchParams,
 }: {
-  searchParams: Promise<{ ok?: string; error?: string }>;
+  searchParams: Promise<{ tab?: string; page?: string; ok?: string; error?: string }>;
 }) {
   const admin = await requireAdmin();
   const sp = await searchParams;
+  const tab: Tab = (TABS as readonly string[]).includes(sp.tab ?? "") ? (sp.tab as Tab) : "all";
+  const page = pageOf(sp);
 
   // Read the raw rows too: the editor needs the stored config and the currency
   // JSON, which `allGateways()` deliberately projects away.
-  const [gateways, raw] = await Promise.all([
+  const [all, raw] = await Promise.all([
     allGateways(),
     prisma.gateway.findMany({ orderBy: [{ sort: "asc" }, { name: "asc" }] }),
   ]);
   const rawById = new Map(raw.map((r) => [r.id, r]));
+
+  const enabled = (alias: string) => rawById.get(all.find((g) => g.alias === alias)?.id ?? "")?.status ?? false;
+  const countOf = (t: Tab) =>
+    t === "all"
+      ? all.length
+      : t === "player"
+        ? all.filter((g) => (PLAYER_RAILS as readonly string[]).includes(g.alias) && g.configured).length
+        : all.filter((g) => enabled(g.alias) === (t === "live")).length;
+
+  // Each rail's editor is a full form, so this screen pages the *editors* rather
+  // than a table — without it, twenty-plus rails meant twenty-plus panels of
+  // stacked forms with no way to jump to the one being changed.
+  const filtered = all.filter((g) => {
+    if (tab === "player") return (PLAYER_RAILS as readonly string[]).includes(g.alias);
+    if (tab === "live") return enabled(g.alias);
+    if (tab === "off") return !enabled(g.alias);
+    return true;
+  });
+  const pageRows = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
   const drivers = allDrivers();
   const isSuper = admin.role === "superadmin";
 
@@ -41,7 +66,7 @@ export default async function AdminGatewaysPage({
     <div className="space-y-6">
       <PageTitle
         title="Payment rails"
-        subtitle={`${gateways.length} configured · ${gateways.filter((g) => g.configured).length} usable`}
+        subtitle={`${all.length} configured · ${all.filter((g) => g.configured).length} usable · players can only be offered ${PLAYER_RAILS.join(" and ")}`}
       />
 
       <Flash ok={sp.ok} error={sp.error} />
@@ -51,6 +76,17 @@ export default async function AdminGatewaysPage({
           You can view this page; only a superadmin can edit rails or credentials.
         </p>
       )}
+
+      <Tabs
+        base="/admin/gateways"
+        active={tab}
+        tabs={[
+          { key: "all", label: "All rails", count: countOf("all") },
+          { key: "player", label: "Player-visible", count: countOf("player") },
+          { key: "live", label: "Enabled", count: countOf("live") },
+          { key: "off", label: "Disabled", count: countOf("off") },
+        ]}
+      />
 
       <Panel title="AVAILABLE DRIVERS">
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -71,11 +107,19 @@ export default async function AdminGatewaysPage({
         </p>
       </Panel>
 
-      {gateways.length === 0 ? (
-        <Empty>No rails in the catalogue.</Empty>
+      {pageRows.length === 0 ? (
+        <Empty>
+          {tab === "live"
+            ? "No rails are enabled."
+            : tab === "player"
+              ? "No rail is currently offered to players."
+              : tab === "off"
+                ? "Every rail is enabled."
+                : "No rails in the catalogue."}
+        </Empty>
       ) : (
         <div className="space-y-5">
-          {gateways.map((g) => {
+          {pageRows.map((g) => {
             const row = rawById.get(g.id);
             const spec = driverFor({ driver: g.driver });
             const config = readConfig(row?.config ?? "{}");
@@ -257,6 +301,13 @@ export default async function AdminGatewaysPage({
           })}
         </div>
       )}
+
+      <Pager
+        page={page}
+        total={filtered.length}
+        base={`/admin/gateways${tab === "all" ? "" : `?tab=${tab}`}`}
+        label="rails"
+      />
     </div>
   );
 }

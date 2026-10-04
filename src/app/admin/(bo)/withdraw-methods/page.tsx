@@ -9,10 +9,13 @@ import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/admin-session";
 import { readArray } from "@/lib/payments/driver";
 import { Button, PageTitle, Panel } from "@/components/ui";
-import { Flash, NumField, TextField, Toggle } from "@/components/admin/parts";
+import { Flash, NumField, PAGE_SIZE, Pager, Tabs, TextField, Toggle, pageOf } from "@/components/admin/parts";
 import { saveWithdrawMethod, toggleWithdrawMethod } from "@/server/admin-actions";
 
 export const dynamic = "force-dynamic";
+
+const TABS = ["all", "on", "off"] as const;
+type Tab = (typeof TABS)[number];
 
 const EXAMPLE = JSON.stringify(
   [
@@ -27,21 +30,30 @@ const EXAMPLE = JSON.stringify(
 export default async function AdminWithdrawMethodsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ ok?: string; error?: string }>;
+  searchParams: Promise<{ tab?: string; page?: string; ok?: string; error?: string }>;
 }) {
   const admin = await requireAdmin();
   const sp = await searchParams;
+  const tab: Tab = (TABS as readonly string[]).includes(sp.tab ?? "") ? (sp.tab as Tab) : "all";
+  const page = pageOf(sp);
 
-  const methods = await prisma.withdrawMethod.findMany({
+  const all = await prisma.withdrawMethod.findMany({
     orderBy: [{ sort: "asc" }, { name: "asc" }],
   });
   const isSuper = admin.role === "superadmin";
+
+  const filtered = all.filter((m) => {
+    if (tab === "on") return m.status;
+    if (tab === "off") return !m.status;
+    return true;
+  });
+  const methods = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   return (
     <div className="space-y-6">
       <PageTitle
         title="Payout methods"
-        subtitle={`${methods.length} method${methods.length === 1 ? "" : "s"} · ${methods.filter((m) => m.status).length} enabled`}
+        subtitle={`${all.length} method${all.length === 1 ? "" : "s"} · ${all.filter((m) => m.status).length} enabled`}
       />
 
       <Flash ok={sp.ok} error={sp.error} />
@@ -51,6 +63,16 @@ export default async function AdminWithdrawMethodsPage({
           You can view this page; only a superadmin can edit payout methods.
         </p>
       )}
+
+      <Tabs
+        base="/admin/withdraw-methods"
+        active={tab}
+        tabs={[
+          { key: "all", label: "All methods", count: all.length },
+          { key: "on", label: "Enabled", count: all.filter((m) => m.status).length },
+          { key: "off", label: "Disabled", count: all.filter((m) => !m.status).length },
+        ]}
+      />
 
       <div className="space-y-5">
         {methods.map((m) => {
@@ -158,6 +180,13 @@ export default async function AdminWithdrawMethodsPage({
           );
         })}
       </div>
+
+      <Pager
+        page={page}
+        total={filtered.length}
+        base={`/admin/withdraw-methods${tab === "all" ? "" : `?tab=${tab}`}`}
+        label="methods"
+      />
     </div>
   );
 }

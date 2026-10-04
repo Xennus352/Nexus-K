@@ -2,8 +2,11 @@
 //
 // The coins were debited from the player's wallet when the request was made, so
 // the two buttons here mean very different things: "paid" closes the request,
-// while "cancel" *refunds* the reservation. Both go through src/lib/settle.ts,
+// while "reject" *refunds* the reservation. Both go through src/lib/settle.ts,
 // which re-reads the row before acting.
+//
+// Tabs mirror the deposit queue — pay / review / all — so the two screens an
+// operator moves between all day have the same shape.
 
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
@@ -18,55 +21,86 @@ import {
   Table,
   formatDate,
 } from "@/components/ui";
-import { Flash, JsonView, Pager, RowLink, TextField, pageOf } from "@/components/admin/parts";
+import {
+  Flash,
+  JsonView,
+  PAGE_SIZE,
+  Pager,
+  RowLink,
+  Tabs,
+  TextField,
+  pageOf,
+} from "@/components/admin/parts";
 import { payWithdrawal, rejectWithdrawal } from "@/server/admin-actions";
 
 export const dynamic = "force-dynamic";
 
-const PAGE_SIZE = 50;
-const STATUSES = ["", "pending", "success", "cancel"];
+const TABS = ["all", "pending", "success", "cancel"] as const;
+type Tab = (typeof TABS)[number];
 
 export default async function AdminWithdrawalsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string; trx?: string; page?: string; ok?: string; error?: string }>;
+  searchParams: Promise<{ tab?: string; trx?: string; page?: string; ok?: string; error?: string }>;
 }) {
   const sp = await searchParams;
 
-  const status = STATUSES.includes(sp.status ?? "") ? sp.status! : "";
+  const tab: Tab = (TABS as readonly string[]).includes(sp.tab ?? "") ? (sp.tab as Tab) : "all";
   const trx = (sp.trx ?? "").trim().slice(0, 40);
   const page = pageOf(sp);
 
   const where = {
-    ...(status ? { status } : {}),
+    ...(tab !== "all" ? { status: tab } : {}),
     ...(trx ? { trx: { contains: trx.toUpperCase() } } : {}),
   };
 
-  const [rows, total, totals, currency] = await Promise.all([
+  const [rows, total, totals, counts, currency] = await Promise.all([
     prisma.withdrawal.findMany({
       where,
       orderBy: { createdAt: "desc" },
       skip: (page - 1) * PAGE_SIZE,
       take: PAGE_SIZE,
-      include: { user: { select: { email: true } }, method: { select: { name: true, code: true } } },
+      include: {
+        user: { select: { email: true, status: true } },
+        method: { select: { name: true, code: true } },
+      },
     }),
     prisma.withdrawal.count({ where }),
     prisma.withdrawal.aggregate({ _sum: { net: true }, where: { status: "success" } }),
+    prisma.withdrawal.groupBy({ by: ["status"], _count: { _all: true } }),
     setting("site.currency"),
   ]);
 
-  const query = new URLSearchParams({ ...(status ? { status } : {}), ...(trx ? { trx } : {}) });
-  const baseWithFilters = `/admin/withdrawals?${query.toString()}`;
+  const countOf = (status: Tab) =>
+    status === "all"
+      ? counts.reduce((a, g) => a + g._count._all, 0)
+      : (counts.find((g) => g.status === status)?._count._all ?? 0);
+
+  const base = "/admin/withdrawals";
+  const query = new URLSearchParams({ ...(trx ? { trx } : {}) });
+  const baseWithFilters = query.toString() ? `${base}?${query.toString()}` : base;
   const pending = rows.filter((w) => w.status === "pending");
 
   return (
     <div className="space-y-6">
       <PageTitle
         title="Withdrawals"
-        subtitle={`${total.toLocaleString()} matching · ${fmt(totals._sum.net ?? 0, currency)} paid out in total`}
+        subtitle={`${fmt(totals._sum.net ?? 0, currency)} paid out in total · ${countOf("pending").toLocaleString()} waiting to be sent`}
       />
 
       <Flash ok={sp.ok} error={sp.error} />
+
+      <Tabs
+        base={base}
+        active={tab}
+        keep={{ trx: trx || undefined }}
+        tabs={[
+          { key: "all", label: "All", count: countOf("all") },
+          { key: "pending", label: "Pay", count: countOf("pending") },
+          { key: "success", label: "Paid", count: countOf("success") },
+          { key: "cancel", label: "Rejected", count: countOf("cancel") },
+        ]}
+      />
 
       <Panel>
         <form className="flex flex-wrap items-end gap-3">
@@ -81,24 +115,12 @@ export default async function AdminWithdrawalsPage({
               className="w-full rounded-xl border border-white/10 bg-[#2b3a6e] px-4 py-2.5 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-sky-500"
             />
           </label>
-          <label>
-            <span className="mb-1.5 block text-xs font-semibold tracking-wide text-slate-300">STATUS</span>
-            <select
-              name="status"
-              defaultValue={status}
-              className="rounded-xl border border-white/10 bg-[#2b3a6e] px-4 py-2.5 text-sm text-slate-100 outline-none focus:border-sky-500"
-            >
-              <option value="">All</option>
-              <option value="pending">Pending</option>
-              <option value="success">Paid</option>
-              <option value="cancel">Cancelled</option>
-            </select>
-          </label>
-          <button className="rounded-xl bg-gradient-to-r from-blue-600 to-sky-500 px-5 py-2.5 text-sm font-bold transition hover:brightness-110">
-            Filter
+          {tab !== "all" && <input type="hidden" name="tab" value={tab} />}
+          <button className="cursor-pointer rounded-xl bg-gradient-to-r from-blue-600 to-sky-500 px-5 py-2.5 text-sm font-bold transition hover:brightness-110">
+            Find
           </button>
-          {(status || trx) && (
-            <Link href="/admin/withdrawals" className="px-2 py-2.5 text-xs text-slate-400 hover:text-white">
+          {(trx || tab !== "all") && (
+            <Link href={base} className="px-2 py-2.5 text-xs text-slate-400 hover:text-white">
               Clear
             </Link>
           )}
@@ -108,7 +130,11 @@ export default async function AdminWithdrawalsPage({
       <Panel bodyClass="p-0 sm:p-0">
         {rows.length === 0 ? (
           <div className="p-5">
-            <Empty>No withdrawals match those filters.</Empty>
+            <Empty>
+              {tab === "pending"
+                ? "Nothing to pay out right now."
+                : "No withdrawals match those filters."}
+            </Empty>
           </div>
         ) : (
           <Table head={["Reference", "Player", "Method", "Payout", "Charged", "Details", "Status", "When"]}>
@@ -117,6 +143,11 @@ export default async function AdminWithdrawalsPage({
                 <td className="px-4 py-3 font-mono text-xs text-sky-300">{w.trx}</td>
                 <td className="max-w-[180px] truncate px-4 py-3 text-xs text-slate-400">
                   <RowLink href={`/admin/users/${w.userId}`}>{w.user.email}</RowLink>
+                  {w.user.status !== "active" && (
+                    <span className="mt-1 inline-block rounded bg-rose-500/15 px-1.5 py-0.5 text-[9px] font-bold text-rose-300">
+                      BANNED
+                    </span>
+                  )}
                 </td>
                 <td className="px-4 py-3 text-xs text-slate-400">{w.method.name}</td>
                 <td className="px-4 py-3 font-mono text-xs text-slate-200">{fmt(w.net, w.currency)}</td>
@@ -143,9 +174,9 @@ export default async function AdminWithdrawalsPage({
       <Pager page={page} total={total} base={baseWithFilters} label="withdrawals" />
 
       {pending.length > 0 && (
-        <Panel title="PENDING QUEUE">
+        <Panel title={`PENDING QUEUE — ${pending.length}`}>
           <p className="mb-4 text-xs text-slate-400">
-            Send the payout first, then mark it paid. Cancelling refunds{" "}
+            Send the payout first, then mark it paid. Rejecting refunds{" "}
             {pending.reduce((a, w) => a + w.charge, 0).toLocaleString()} reserved coins back to the
             players below.
           </p>
@@ -166,16 +197,16 @@ export default async function AdminWithdrawalsPage({
                 <div className="grid gap-4 lg:grid-cols-2">
                   <form action={payWithdrawal} className="space-y-2">
                     <input type="hidden" name="id" value={w.id} />
-                    <TextField name="adminNote" label="NOTE" placeholder="Sent via SEPA, ref 88213" />
+                    <TextField name="adminNote" label="NOTE" placeholder="Sent via Wave, ref 88213" />
                     <Button type="submit" tone="good" className="w-full">
                       Mark as paid
                     </Button>
                   </form>
                   <form action={rejectWithdrawal} className="space-y-2">
                     <input type="hidden" name="id" value={w.id} />
-                    <TextField name="adminNote" label="CANCEL REASON" placeholder="Account name mismatch" />
+                    <TextField name="adminNote" label="REJECT REASON" placeholder="Account name mismatch" />
                     <Button type="submit" tone="danger" className="w-full">
-                      Cancel & refund
+                      Reject & refund
                     </Button>
                   </form>
                 </div>
