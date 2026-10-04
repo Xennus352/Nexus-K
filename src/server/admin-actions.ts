@@ -948,3 +948,59 @@ export async function resetAdminPassword(form: FormData) {
   });
   done("/admin/admins", `Password reset for ${target.username}.`);
 }
+
+/* ----------------------------------------------------------- profit & loss */
+
+type Period = "day" | "week" | "month";
+
+function periodStart(period: Period): Date {
+  const now = new Date();
+  switch (period) {
+    case "day":
+      return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    case "week": {
+      const d = new Date(now);
+      d.setDate(now.getDate() - now.getDay());
+      d.setHours(0, 0, 0, 0);
+      return d;
+    }
+    case "month":
+      return new Date(now.getFullYear(), now.getMonth(), 1);
+  }
+}
+
+/** Aggregates deposits, withdrawals and adjustments for the given period. */
+export async function getProfitReport(period: Period): Promise<{
+  deposits: number;
+  withdrawals: number;
+  bonus: number;
+  net: number;
+}> {
+  const since = periodStart(period);
+  const [deps, wds, adjs] = await Promise.all([
+    prisma.deposit.aggregate({
+      where: { status: "success", createdAt: { gte: since } },
+      _sum: { coins: true },
+    }),
+    prisma.withdrawal.aggregate({
+      where: { status: "paid", createdAt: { gte: since } },
+      _sum: { charge: true },
+    }),
+    prisma.transaction.aggregate({
+      where: {
+        type: { in: ["bonus", "referral", "adjustment", "refund"] },
+        createdAt: { gte: since },
+      },
+      _sum: { amount: true },
+    }),
+  ]);
+  const deposits = deps._sum.coins ?? 0;
+  const withdrawals = wds._sum.charge ?? 0;
+  const bonus = adjs._sum.amount ?? 0;
+  return {
+    deposits,
+    withdrawals,
+    bonus,
+    net: deposits - withdrawals + bonus,
+  };
+}

@@ -39,7 +39,7 @@ const TOTAL = 20;
  * worth reporting.
  */
 export async function noticesFor(userId: string): Promise<Notice[]> {
-  const [deposits, withdrawals] = await Promise.all([
+  const [deposits, withdrawals, adjustments] = await Promise.all([
     prisma.deposit.findMany({
       where: { userId },
       orderBy: { createdAt: "desc" },
@@ -50,6 +50,11 @@ export async function noticesFor(userId: string): Promise<Notice[]> {
       orderBy: { createdAt: "desc" },
       take: LIMIT,
       include: { method: { select: { name: true } } },
+    }),
+    prisma.transaction.findMany({
+      where: { userId, type: "adjustment", amount: { gt: 0 } },
+      orderBy: { createdAt: "desc" },
+      take: LIMIT,
     }),
   ]);
 
@@ -125,6 +130,17 @@ export async function noticesFor(userId: string): Promise<Notice[]> {
               href: "/withdraw/history",
             },
     );
+  }
+
+  for (const a of adjustments) {
+    notices.push({
+      id: `adj:${a.id}`,
+      at: a.createdAt.toISOString(),
+      tone: "good",
+      title: `Coins granted by admin · +${a.amount.toLocaleString()}`,
+      body: a.memo || "An operator credited your account.",
+      href: "/account",
+    });
   }
 
   notices.sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));

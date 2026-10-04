@@ -27,26 +27,31 @@ export type Sym = {
 };
 
 export const SYMS: Sym[] = [
-  { id: "wild", img: "wild_buffalo", p2: 5, p3: 25, p4: 100, p5: 500, wild: true },
-  { id: "lion", img: "lion", p2: 3, p3: 15, p4: 50, p5: 200 },
-  { id: "elephant", img: "elephant", p2: 3, p3: 12, p4: 40, p5: 180 },
-  { id: "giraffe", img: "giraffe", p2: 2, p3: 10, p4: 30, p5: 150 },
-  { id: "crocodile", img: "crocodile", p2: 2, p3: 8, p4: 25, p5: 100 },
-  { id: "rhino", img: "rhino", p3: 6, p4: 20, p5: 80 },
-  { id: "zebra", img: "zebra", p3: 5, p4: 15, p5: 60 },
-  { id: "eagle", img: "eagle", p3: 4, p4: 12, p5: 50 },
-  { id: "A", img: "buffalo_A", p3: 3, p4: 10, p5: 30 },
-  { id: "K", img: "buffalo_K", p3: 3, p4: 8, p5: 25 },
-  { id: "Q", img: "buffalo_Q", p3: 2, p4: 6, p5: 20 },
-  { id: "J", img: "buffalo_J", p3: 2, p4: 5, p5: 15 },
-  { id: "10", img: "symbol_10", p3: 2, p4: 4, p5: 10 },
-  { id: "scatter", img: "scatter_sunset", p3: 2, p4: 5, p5: 20, scatter: true },
-  { id: "x2", img: "multiplier_x2", p3: 0, p4: 0, p5: 0, mult: 2 },
-  { id: "x3", img: "multiplier_x3", p3: 0, p4: 0, p5: 0, mult: 3 },
-  { id: "x5", img: "multiplier_x5", p3: 0, p4: 0, p5: 0, mult: 5 },
+  { id: "wild", img: "wild_buffalo", p2: 4, p3: 18, p4: 74, p5: 368, wild: true },
+  { id: "lion", img: "lion", p2: 2, p3: 11, p4: 37, p5: 147 },
+  { id: "elephant", img: "elephant", p2: 2, p3: 9, p4: 29, p5: 132 },
+  { id: "giraffe", img: "giraffe", p2: 2, p3: 7, p4: 22, p5: 110 },
+  { id: "crocodile", img: "crocodile", p2: 2, p3: 6, p4: 18, p5: 74 },
+  { id: "rhino", img: "rhino", p2: 2, p3: 5, p4: 15, p5: 59 },
+  { id: "zebra", img: "zebra", p2: 2, p3: 4, p4: 11, p5: 44 },
+  { id: "eagle", img: "eagle", p2: 2, p3: 3, p4: 9, p5: 37 },
+  { id: "A", img: "buffalo_A", p2: 1, p3: 3, p4: 9, p5: 26 },
+  { id: "K", img: "buffalo_K", p2: 1, p3: 2, p4: 8, p5: 22 },
+  { id: "Q", img: "buffalo_Q", p2: 1, p3: 2, p4: 6, p5: 18 },
+  { id: "J", img: "buffalo_J", p2: 1, p3: 2, p4: 5, p5: 14 },
+  { id: "10", img: "symbol_10", p2: 1, p3: 2, p4: 4, p5: 10 },
+  { id: "scatter", img: "scatter_sunset", p3: 2, p4: 4, p5: 15, scatter: true },
+  { id: "x2", img: "multiplier_x2", p3: 1, p4: 1, p5: 1, mult: 2 },
+  { id: "x3", img: "multiplier_x3", p3: 1, p4: 1, p5: 1, mult: 3 },
+  { id: "x5", img: "multiplier_x5", p3: 1, p4: 1, p5: 1, mult: 5 },
 ];
 
 const byImg = new Map(SYMS.map((s) => [s.img, s]));
+/** Symbols are looked up by id everywhere: the reels, the grid and the wins all
+ *  carry ids, and keying on the img field name was the bug that made every
+ *  `wild`/`scatter`/`A–10` cell a lookup miss — no line ever scored and free
+ *  spins never triggered. */
+const byId = new Map(SYMS.map((s) => [s.id, s]));
 /** The image URL for a paytable id — grid cells and wins carry ids, not file names. */
 export function symImg(id: string): string {
   const s = SYMS.find((x) => x.id === id);
@@ -151,7 +156,7 @@ export function score(grid: string[][], lineStake: number, multiplier: number): 
   // --- scatters: anywhere, and pays anywhere ---
   for (let r = 0; r < 5; r++) {
     for (let row = 0; row < 3; row++) {
-      const s = byImg.get(grid[r][row]);
+      const s = byId.get(grid[r][row]);
       if (s?.scatter) {
         scatterCount++;
         scatterCells.push([r, row]);
@@ -173,7 +178,7 @@ export function score(grid: string[][], lineStake: number, multiplier: number): 
     let target: string | null = null;
     let count = 0;
     for (let c = 0; c < 5; c++) {
-      const s = byImg.get(grid[c][line[c]]);
+      const s = byId.get(grid[c][line[c]]);
       if (!s || s.scatter || s.mult !== undefined) break;
       if (s.wild) {
         count++;
@@ -207,9 +212,12 @@ export function score(grid: string[][], lineStake: number, multiplier: number): 
     }
   }
 
-  // --- the scatter pays the bet, not the line ---
-  if (scatterCount >= 2) {
-    const s = byImg.get("scatter_sunset")!;
+  // --- the scatter pays the bet, not the line ---.
+  // At least three, matching the paytable and the figure that triggers the free-spins
+  // feature: a symbol file listed on the cabinet implies "three on the screen," and
+  // two scatters have come up on a large share of spins for no real premium.
+  if (scatterCount >= 3) {
+    const s = byId.get("scatter")!;
     const pay = scatterCount >= 5 ? s.p5 : scatterCount === 4 ? s.p4 : s.p3;
     if (pay > 0) {
       wins.push({
@@ -245,8 +253,8 @@ export function score(grid: string[][], lineStake: number, multiplier: number): 
 export function symbolMultiplier(grid: string[][]): number {
   const found = new Set<number>();
   for (const reel of grid) {
-    for (const img of reel) {
-      const m = byImg.get(img)?.mult;
+    for (const id of reel) {
+      const m = byId.get(id)?.mult;
       if (m !== undefined) found.add(m);
     }
   }
@@ -255,11 +263,11 @@ export function symbolMultiplier(grid: string[][]): number {
   return Math.min(m, 10);
 }
 
-/** Free spins granted for a scatter count. The muliplier they run at. */
+/** Free spins granted for a scatter count. The multiplier they run at. */
 export function freeSpinsFor(scatters: number): { spins: number; multiplier: number } {
-  if (scatters >= 5) return { spins: 20, multiplier: 3 };
-  if (scatters >= 4) return { spins: 15, multiplier: 2 };
-  if (scatters >= 3) return { spins: 10, multiplier: 2 };
+  if (scatters >= 5) return { spins: 12, multiplier: 3 };
+  if (scatters >= 4) return { spins: 8, multiplier: 2 };
+  if (scatters >= 3) return { spins: 6, multiplier: 2 };
   return { spins: 0, multiplier: 1 };
 }
 
@@ -281,6 +289,6 @@ export function scatterImg(): string {
   return "scatter_sunset";
 }
 export function multId(img: string): number | undefined {
-  return byImg.get(img)?.mult;
+  return byId.get(img)?.mult;
 }
 export { byImg as symByImg };

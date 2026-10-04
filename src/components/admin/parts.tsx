@@ -169,7 +169,7 @@ export function pageOf(sp: { page?: string }): number {
  * that page advertised twice as many pages as existed and "Next" walked the
  * operator onto empty screens.
  */
-export const PAGE_SIZE = 20;
+export const PAGE_SIZE = 15;
 
 export function Pager({
   page,
@@ -236,7 +236,7 @@ export function Pager({
             …
           </span>
         ) : (
-          link(n, n, false)
+          <span key={n}>{link(n, n, false)}</span>
         ),
       )}
       {link(page + 1, "Next ›", page >= pages)}

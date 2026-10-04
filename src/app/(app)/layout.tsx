@@ -8,6 +8,7 @@ import Topbar from "@/components/Topbar";
 import MobileNav from "@/components/MobileNav";
 import CopyButton from "@/components/CopyButton";
 import MaintenanceScreen from "@/components/MaintenanceScreen";
+import { CoinGrantToastContainer } from "@/components/CoinGrantToast";
 
 export default async function AppLayout({
   children,
@@ -61,6 +62,8 @@ export default async function AppLayout({
         />
         <div className="flex-1 p-4 pb-24 md:p-6 md:pb-6">{children}</div>
         <MobileNav />
+        {/* Coin grant toasts - shows when admin grants coins to player */}
+        <CoinGrantToastContainer />
       </div>
     </div>
   );

@@ -169,6 +169,33 @@ export default async function AdminUserDetail({
             </p>
           </Panel>
 
+          {/* Quick ban button for non-superadmins too - more prominent action */}
+          <Panel title="BAN / UNBAN PLAYER">
+            <form action={setUserStatus} className="space-y-3">
+              <input type="hidden" name="id" value={user.id} />
+              <input type="hidden" name="action" value={blocked ? "unblock" : "block"} />
+              {!blocked && (
+                <TextField
+                  name="reason"
+                  label="BAN REASON (shown to player)"
+                  placeholder="Why are you banning this player?"
+                />
+              )}
+              <Button
+                type="submit"
+                tone={blocked ? "good" : "danger"}
+                className="w-full py-3 text-lg font-bold tracking-wide"
+              >
+                {blocked ? "✓ REINSTATE PLAYER" : "⛔ BAN PLAYER"}
+              </Button>
+            </form>
+            <p className="mt-2 text-xs text-slate-400">
+              {blocked
+                ? "Reinstating allows the player to sign in and play again."
+                : "Banning prevents sign-in, deposits, withdrawals, and game play. Player sees your reason on the login screen."}
+            </p>
+          </Panel>
+
           {isSuper ? (
             <>
               <Panel title="SET PASSWORD">
