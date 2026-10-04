@@ -74,7 +74,7 @@ const PACKS: { keys: string[]; t: Theme }[] = [
     },
   },
   {
-    keys: ["jungle", "safari", "lion", "tiger", "animal", "wild cat", "elephant", "monkey", "ape"],
+    keys: ["jungle", "safari", "african", "simba", "lion", "tiger", "animal", "wild cat", "elephant", "monkey", "ape"],
     t: {
       cover: "from-emerald-600/80 to-green-950", accent: "#34d399", accentText: "text-emerald-300",
       bgA: "#047857", bgB: "#03211a",

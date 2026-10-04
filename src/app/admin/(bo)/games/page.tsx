@@ -12,7 +12,7 @@
 import { requireAdmin } from "@/lib/admin-session";
 import { PageTitle, Panel, Button } from "@/components/ui";
 import { Flash, NumField, PAGE_SIZE, Pager, Tabs, TextField, Toggle, pageOf } from "@/components/admin/parts";
-import { allFlags, LOCAL_GAMES, type EngineGame } from "@/lib/games";
+import { allFlags, type EngineGame } from "@/lib/games";
 import { saveGameFlagAction, clearGameFlagAction } from "@/server/admin-actions";
 
 export const dynamic = "force-dynamic";
@@ -57,14 +57,12 @@ export default async function AdminGamesPage({
 
   const flags = await allFlags();
 
-  const rows = [
-    ...LOCAL_GAMES.map((g) => ({ key: g.key, title: g.title, prov: g.prov, local: true })),
-    ...engineGames.map((g) => ({ key: `${g.prov}/${g.name}`, title: g.name, prov: g.prov, local: false })),
-  ].map((g) => {
-    const f = flags.get(g.key);
+  const rows = engineGames.map((g) => {
+    const key = `${g.prov}/${g.name}`;
+    const f = flags.get(key);
     const visible = f ? f.visible : true;
     const maint = f ? f.maint : false;
-    return { ...g, visible, maint, note: f?.note ?? "", maintNote: f?.maintNote ?? "", sort: f?.sort ?? 0, flagged: !!f };
+    return { key, title: g.name, prov: g.prov, local: false, visible, maint, note: f?.note ?? "", maintNote: f?.maintNote ?? "", sort: f?.sort ?? 0, flagged: !!f };
   });
 
   const shown = rows.filter((g) => {
