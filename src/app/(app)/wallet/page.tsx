@@ -7,7 +7,6 @@ import { setting } from "@/lib/settings";
 import { claimDailyBonus, saveProfile } from "@/server/actions";
 import { submitKyc } from "@/server/ticket-actions";
 import CopyButton from "@/components/CopyButton";
-import { referralLink as referralLinkFor } from "@/lib/origin";
 import {
   Button,
   Empty,
@@ -45,7 +44,6 @@ export default async function WalletPage() {
   if (!user) redirect("/?error=Account+not+found");
 
   const wallet = user.engineUid === null ? 0 : await walletOf(user.engineUid);
-  const referralLink = await referralLinkFor(user.refCode);
 
   const [transactions, claimedToday, referrals, bonusClaims, currency] = await Promise.all([
     prisma.transaction.findMany({
@@ -113,21 +111,24 @@ export default async function WalletPage() {
 
         <Panel title="REFERRAL">
           <p className="text-sm text-slate-400">
-            Share this link. When a friend signs up through it, you both receive a referral bonus.
+            Give this code to a friend. When our team opens their account with it, you both
+            receive a referral bonus.
           </p>
           <div className="mt-3 flex items-center gap-2">
             <code className="flex-1 truncate rounded-xl border border-white/10 bg-[#2b3a6e] px-3 py-2 font-mono text-sm text-sky-200">
               {user.refCode}
             </code>
-            {/* Copies the full link so it works as-is; the code stays visible
-                above for anyone who is told to type it in. */}
+            {/* Copies the bare code, not a link: accounts are opened by an operator
+                who types the code into the new-player form, and nothing reads a
+                `?ref=` query parameter any more. Copying a link here would hand the
+                player something that silently does nothing. */}
             <Button
               type="button"
               tone="ghost"
               className="px-3 py-2 text-xs"
-              data-copy={referralLink}
+              data-copy={user.refCode}
             >
-              Copy link
+              Copy code
             </Button>
           </div>
           <p className="mt-2 text-xs text-slate-500">

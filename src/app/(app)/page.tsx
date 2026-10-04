@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { settingNumber } from "@/lib/settings";
 import Gallery from "@/components/Gallery";
 import AuthForm from "@/components/AuthForm";
+import LoginScene from "@/components/LoginScene";
 import FloatingChips from "@/components/FloatingChips";
 
 const ENGINE = process.env.SLOTOPOL_URL ?? "http://localhost:8080";
@@ -14,18 +15,16 @@ export default async function Home({
 }: {
   searchParams: Promise<{ error?: string; ref?: string }>;
 }) {
-  const { error, ref } = await searchParams;
+  const { error } = await searchParams;
   const s = await getSession();
 
+  // Signed out: the sign-in screen owns the whole viewport, so it bypasses the
+  // app shell entirely (the layout falls back to a bare wrapper with no nav).
   if (!s) {
     return (
-      <main className="flex min-h-screen flex-col items-center justify-center gap-8 bg-transparent p-8 text-white">
-        <h1 className="bg-gradient-to-r from-sky-300 via-sky-400 to-blue-600 bg-clip-text text-6xl font-black text-transparent drop-shadow-[0_0_30px_rgba(56,189,248,0.4)]">
-          NEXUS-K
-        </h1>
-        <p className="text-slate-400 tracking-[0.4em] text-xs">BLUE DIAMOND CASINO</p>
-        <AuthForm error={error} refCode={ref} />
-      </main>
+      <LoginScene>
+        <AuthForm error={error} />
+      </LoginScene>
     );
   }
 

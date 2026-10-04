@@ -88,15 +88,21 @@ export type CurrentAdmin = AdminSession & { lastLoginAt: Date | null };
 
 /**
  * The admin a session points at, re-read on every protected page. Redirects to
- * the login screen when there is no valid session or the account is not active.
+ * the staff portal when there is no valid session or the account is not active.
+ *
+ * The path the operator was on is not carried through: a server component cannot
+ * see the current pathname, and reading it off a header would be guesswork. A
+ * deep link degrades to "sign in, then navigate" — `/portal?next=/admin/users`
+ * still works for anyone who wants the short version, and `adminLogin` is what
+ * decides whether a supplied `next` is an acceptable same-origin admin path.
  */
 export async function requireAdmin(): Promise<CurrentAdmin> {
   const session = await getAdminSession();
-  if (!session) redirect("/admin/login");
+  if (!session) redirect("/portal");
   const row = await prisma.admin.findUnique({ where: { id: session.id } });
   if (!row || row.status !== "active") {
     await clearAdminSession();
-    redirect("/admin/login?error=Your+admin+account+is+not+active");
+    redirect("/portal?error=Your+admin+account+is+not+active");
   }
   return {
     id: row.id,

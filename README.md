@@ -12,20 +12,102 @@ Inspired by these open-source projects:
 
 ## Player area
 
-- Email/password auth against bcrypt, in a signed httpOnly cookie.
-- Lobby and 3×3 slot machine with GSAP reels, streamed game data and pooled sound effects.
+- **Sign-in only** — there is no registration. Accounts are created by an operator (see below) and the
+  player types the password they were given. Password fields have a show/hide toggle.
+- The sign-in screen is an animated scene (`src/components/LoginScene.tsx`): the Zeus plate drifts
+  behind, slot symbols float up past the card like a slow reel, and the title staggers in. One GSAP
+  context drives it all and collapses to a static frame under `prefers-reduced-motion`.
+- Lobby and slot machine with GSAP reels, streamed game data and pooled sound effects.
 - **Wallet**: live balance, deposit/withdraw totals, transaction ledger, referral code, KYC submission.
 - **Deposit**: per-rail fees, limits and currency lists, a checkout per driver, an instructions page
   for manual rails, and a status endpoint the detail page polls.
 - **Withdraw**: per-method payout fields, fee split, turnover rule, optional KYC gate, reserve-on-request.
 - **Bonuses**: daily bonus (once per day), welcome bonus, referral bonuses, deposit bonuses.
-- **Support**: ticket list, new ticket, threaded replies.
+- **Support**: ticket list, new ticket, threaded replies, and an optional Telegram channel.
+
+### Creating player accounts
+
+There is no public sign-up. The `signup` server action was removed rather than just hidden, so there is
+no endpoint left to call by hand. **Create a player account** on `/admin/users` is the only door in: it
+provisions the engine account *and* the casino row together, sets the password, and pays the welcome
+and referral bonuses — the same fan-out self-service registration used to do.
+
+The form is superadmin-only, which is the same power tier as adjusting a balance by hand. It is a
+native `<details>`, so it works with JavaScript disabled.
+
+`login` still rebuilds a casino row for an email the engine already knows but this app does not. That
+is a repair path for accounts created directly against the engine, not a sign-up form — it pays no
+bonuses.
+
+## Staff sign-in (`/portal`)
+
+Back-office staff sign in at **`/portal`**, not at `/admin`. The two screens are deliberately
+separate: the player cookie `nk` and the admin cookie `nk_admin` are signed independently and a player
+session confers no admin rights, so `/portal` exists so an operator can type a staff password without
+looking like the player login.
+
+`/admin/login` still redirects there, so old bookmarks and runbooks keep working.
+
+## Telegram support
+
+Optional. Set `TELEGRAM_BOT_TOKEN` from [@BotFather](https://t.me/BotFather) and the app will:
+
+- show a **"Message us on Telegram"** button on `/support` and on every ticket thread, deep-linking to
+  the bot with the ticket number as the `/start` payload;
+- push new tickets and player replies to the operator's chat.
+
+The bot's `@username` is looked up from the token automatically. The chat that *receives* the
+notifications is adopted once from `/admin/settings` → **Detect from bot**: open a chat with the bot,
+send it anything, press the button. That exists because a token from BotFather does not tell you your
+own chat id, and looking it up by hand is a support trap.
+
+The token is read from the environment only — never stored in the database, never logged, never sent to
+the browser. Nothing in `src/lib/telegram.ts` throws: Telegram is a convenience channel, so an outage
+degrades to "the button is not rendered", not to a failed ticket submission.
+
+## Art
+
+Every cabinet's art is derived from a pack, keyed off the game's name in `src/lib/theme.ts`. Packs are
+matched **in order**, so a narrower keyword set has to be checked before a broader one.
+
+| Pack      | Reel symbols                      | Backdrop                       |
+| --------- | --------------------------------- | ------------------------------ |
+| `kemet`   | 5 framed gems + frames + mascot   | full Egyptian room             |
+| `zeus`    | 28 symbols + control plates       | 3 painted Olympus scenes       |
+| `viking`  | LUX symbols                       | nordic panorama (from textures)|
+| `egypt`   | 7 emblems                         | themed cabinet                 |
+| `lux`     | 28 symbols                        | theme palette                  |
+| `fantasy` | pixel symbols                     | fantasy cabinets               |
+| `classic` / `fruits2` / `pixelfood` | fruit and pixel sets   | theme palette                  |
+
+### Regenerating the art
+
+`public/assets/` is gitignored and holds the raw drops. Two scripts turn them into the committed WebP
+under `public/gfx/`:
+
+```bash
+./scripts/optimize-upload-code.sh   # public/Upload_Code/  -> public/gfx + public/sfx
+./scripts/optimize-assets.sh        # public/assets/       -> public/gfx
+```
+
+`optimize-assets.sh` handles the three newer packs. Two things it does that are worth knowing:
+
+- **The Zeus pack was cropped out of one sprite atlas**, so every symbol and button still has the
+  atlas background baked in — an opaque `rgb(20,28,38)` field, exactly as its `README.txt` warns. Its
+  alpha is derived from a luminance ramp, which cuts the subjects out while keeping the dark interior
+  detail a flood-fill would eat. Without this the symbols render as dark rectangles on the reel.
+- **The gptViking drop is unusable as reel art.** It is 38 low-poly FBX models but only their diffuse
+  textures were exported, and a UV atlas cannot be a symbol — every one of them measures 56–64 distinct
+  colours after quantising to 64, i.e. pure noise. What they *do* carry is material and palette, so the
+  script dissolves eight of them into one wide panorama (moss, wet pine, snow, granite, iron) and that
+  becomes the viking backdrop. The crop offsets are fixed rather than random so re-running is
+  byte-stable.
 
 ## Back office (`/admin`)
 
 Dashboard, reports, deposits, withdrawals, ledger, payment rails, payout methods, settings, players,
-tickets, verification and staff accounts. Balance adjustments are superadmin-only, and the last
-active superadmin cannot be demoted or deactivated.
+tickets, verification and staff accounts. Balance adjustments and player creation are superadmin-only,
+and the last active superadmin cannot be demoted or deactivated.
 
 ## How money moves
 
@@ -96,18 +178,26 @@ re-seeding will not revert configuration you changed in the back office.
 | `pnpm db:seed`        | Seed settings, rails, payout methods and the first admin   |
 | `pnpm db:e2e`         | Money-path test against a live engine                      |
 | `pnpm db:e2e:http`    | Same paths again, driven over HTTP through the real pages  |
+| `./scripts/optimize-upload-code.sh` | Rebuild `public/gfx` + `public/sfx` from `public/Upload_Code/` |
+| `./scripts/optimize-assets.sh`      | Rebuild the zeus/egypt/viking art from `public/assets/`    |
 
 ### Testing the money paths
 
 Both suites need the engine running on `:8080` and a served build (`pnpm start`) on `:3000`. Each run
-creates a throwaway player, so they are safe to re-run.
+creates throwaway players, so they are safe to re-run.
 
 - `pnpm db:e2e` exercises settlement logic directly: signup, admin credit, manual deposit approval
   (twice, to prove the replay is a no-op), daily bonus, withdrawal payout, cancellation and refund,
   overdraft refusal, and finally that the ledger reconciles with the live wallet to the coin.
 - `pnpm db:e2e:http` drives the same paths the way a browser does — real cookies, the player API
   routes, and the admin buttons replayed from their rendered forms. This is the layer that catches a
-  server action that was never wired to a form, which a logic-only test cannot see.
+  server action that was never wired to a form, which a logic-only test cannot see. It also covers
+  `/portal`, the `/admin/login` redirect, and back-office player creation end to end: the row and the
+  engine account, the welcome bonus, a duplicate refusal, and a referral paying both sides.
+
+  It mints both cookies **before** any request goes out. The mint spawns `tsx`, which blocks the event
+  loop; a keep-alive socket opened before that goes stale and the next request dies mid-body with
+  `UND_ERR_SOCKET`, which looks exactly like a server bug.
 
 ### Dev helpers
 
@@ -123,13 +213,15 @@ curl -H "Cookie: nk_admin=$(npx tsx --env-file=.env scripts/mint-admin-cookie.mt
   http://localhost:3000/admin
 ```
 
-Note that server actions are not plain form POSTs: `curl -X POST /admin/login` returns 200 and sets no
-cookie. Mint the cookie instead.
+Note that server actions are not plain form POSTs: `curl -X POST /portal` returns 200 and sets no
+cookie. Mint the cookie instead. A form that *is* rendered carries an `$ACTION_ID` and can be replayed
+as multipart POST — that is exactly how `pnpm db:e2e:http` drives the back office.
 
-`scripts/optimize-upload-code.sh` regenerates `public/gfx/` and `public/sfx/` from the Laravel dump in
-`public/Upload_Code/` (image/audio transcoding, plus the two sound effects that the dump does not
-contain and that are derived from `spin.mp3` with ffmpeg).
-
-> ⚠️ Never commit `.env` or share production credentials publicly. If credentials were posted
-> anywhere, rotate them (MongoDB Atlas → Database Access → Edit password). `public/Upload_Code/` is
-> gitignored; only the derived assets under `public/gfx/` and `public/sfx/` are committed.
+> ⚠️ Never commit `.env` or share production credentials publicly. `public/assets/` and
+> `public/Upload_Code/` are gitignored; only the derived assets under `public/gfx/` and `public/sfx/`
+> are committed. If credentials were posted anywhere, rotate them — MongoDB Atlas → Database Access →
+> Edit password, and Telegram → BotFather → `/revoke`.
+>
+> `TELEGRAM_BOT_TOKEN` is a full write credential for the bot. The token this project was developed
+> against was pasted into a chat, so **rotate it before going live** and paste the replacement into
+> `.env` only.

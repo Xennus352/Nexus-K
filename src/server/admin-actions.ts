@@ -32,6 +32,10 @@ import { move } from "@/lib/wallet";
 import { saveSettings, SETTING_DEFS, invalidateSettings } from "@/lib/settings";
 import { driverFor, readConfig, writeConfig } from "@/lib/payments/driver";
 import { fiatCurrencies, parseAmount } from "@/lib/money";
+import { engineSignup, engineSigninPlayer } from "@/lib/engine";
+import { paySignupBonuses } from "@/server/signup-bonuses";
+import { newRefCode } from "@/server/ref-code";
+import { discoverOpsChat, sendToOps, telegramConfigured } from "@/lib/telegram";
 
 /* ------------------------------------------------------------------- utils */
 
@@ -97,7 +101,7 @@ async function superadminOnly(back: string): Promise<CurrentAdmin> {
 export async function adminLogin(form: FormData) {
   const username = field(form, "username", 120).toLowerCase();
   const password = String(form.get("password") ?? "");
-  if (!username || !password) fail("/admin/login", "Enter your username and password.");
+  if (!username || !password) fail("/portal", "Enter your username and password.");
 
   const admin = await prisma.admin.findFirst({
     where: { OR: [{ username }, { email: username }] },
@@ -106,7 +110,7 @@ export async function adminLogin(form: FormData) {
   // password", so the form cannot be used to enumerate staff accounts.
   const ok = admin ? await bcrypt.compare(password, admin.passwordHash) : false;
   if (!admin || !ok || admin.status !== "active") {
-    fail("/admin/login", "Invalid credentials.");
+    fail("/portal", "Invalid credentials.");
   }
 
   await setAdminSession({
@@ -129,7 +133,7 @@ export async function adminLogin(form: FormData) {
 
 export async function adminLogout() {
   await clearAdminSession();
-  redirect("/admin/login");
+  redirect("/portal");
 }
 
 /* ------------------------------------------------------------------- users */
@@ -148,6 +152,128 @@ export async function setUserStatus(form: FormData) {
     data: { status: block ? "blocked" : "active", banReason: block ? field(form, "reason", 200) : "" },
   });
   done(back, block ? `${user.email} suspended.` : `${user.email} reinstated.`);
+}
+
+/**
+ * Creates a player account.
+ *
+ * Players cannot register themselves, so this is the only way an account comes
+ * into existence: it provisions the slotopol account *and* the casino row in one
+ * step, because a player who can sign in to the engine but has no row here would
+ * be a half-account that the wallet pages cannot render.
+ *
+ * Superadmin-only: this hands out credentials, which is the same power tier as
+ * adjusting a balance by hand.
+ */
+export async function createPlayer(form: FormData) {
+  const back = "/admin/users";
+  await superadminOnly(back);
+
+  const email = field(form, "email", 160).toLowerCase();
+  const password = String(form.get("password") ?? "");
+  const username = field(form, "username", 60);
+  const refCode = field(form, "refCode", 16).toUpperCase();
+
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) fail(back, "Enter a valid email address.");
+  if (password.length < 6) fail(back, "Password must be at least 6 characters.");
+  if (await prisma.user.findUnique({ where: { email }, select: { id: true } })) {
+    fail(back, `${email} already has an account.`);
+  }
+
+  // An unknown code is a typo, not a reason to silently drop the referral, so it
+  // is checked here rather than after the account exists.
+  const referrer = refCode
+    ? await prisma.user.findFirst({ where: { refCode }, select: { id: true, engineUid: true } })
+    : null;
+  if (refCode && !referrer) fail(back, `No player has referral code ${refCode}.`);
+
+  const uid = await engineSignup(email, password, username || email.split("@")[0]);
+  if (uid === null) fail(back, "The engine refused to create that account (email may already exist there).");
+
+  const auth = await engineSigninPlayer(email, password);
+  if (!auth) {
+    // The engine row exists but the sign-in did not; leaving a User row behind
+    // would give the player a casino account with no reachable wallet.
+    fail(back, "Account was created on the engine but could not be signed into — check its credentials.");
+  }
+
+  // Prisma on MongoDB has no `createOrThrow`, so the write is guarded by hand.
+  const user = await prisma.user
+    .create({
+      data: {
+        email,
+        passwordHash: await bcrypt.hash(password, 10),
+        engineUid: auth.uid,
+        username: username || email.split("@")[0],
+        refCode: await newRefCode(),
+        refById: referrer?.id ?? null,
+      },
+    })
+    .catch(() => null);
+
+  if (!user) {
+    // The engine account exists and this one does not — a half-account, which is
+    // exactly what this action exists to avoid. It has to be said plainly, because
+    // a bare 500 here leaves the operator retrying into "email already exists on
+    // the engine" with no idea what happened. `login` will rebuild the row for the
+    // player on their first sign-in, which is the escape hatch.
+    fail(
+      back,
+      `Created the engine account for ${email} but could not save the casino record — ` +
+        "nothing else was charged. The player can complete sign-in themselves, or " +
+        "delete the engine account and try again."
+    );
+  }
+
+  // Same fan-out the old self-service signup used, so a welcome bonus and the
+  // referral bonus on both sides still happen when a player is provisioned here.
+  const bonuses = await paySignupBonuses({
+    userId: user.id,
+    engineUid: auth.uid,
+    email,
+    referrer: referrer ? { id: referrer.id, engineUid: referrer.engineUid } : null,
+  });
+
+  const parts = [`${email} created.`];
+  if (bonuses.welcome) parts.push("welcome bonus paid.");
+  if (bonuses.referral) parts.push("referral bonus paid to the player.");
+  if (bonuses.referrerUnpaid) parts.push("referrer is not paid yet (no engine wallet).");
+  done(back, parts.join(" "));
+}
+
+/**
+ * Adopts the operator's Telegram chat from the bot's pending updates.
+ *
+ * Getting a token from BotFather does not say who to notify, and asking an
+ * operator to find their own chat id is a trap. Whoever has messaged the bot is
+ * the operator, so their chat is picked up here instead.
+ */
+export async function detectTelegramChat(form: FormData) {
+  const back = "/admin/settings";
+  await superadminOnly(back);
+  void form;
+
+  if (!telegramConfigured()) fail(back, "Set TELEGRAM_BOT_TOKEN in the environment first.");
+
+  const found = await discoverOpsChat();
+  if (!found) {
+    fail(back, "No messages found. Open a chat with the bot and send it anything, then try again.");
+  }
+
+  await saveSettings({ "support.telegram_chat": found.chatId });
+  invalidateSettings();
+  done(back, `Notifications will now go to ${found.name} (${found.chatId}).`);
+}
+
+/** Fires a test notification so an operator can confirm delivery. */
+export async function testTelegram(form: FormData) {
+  const back = "/admin/settings";
+  await superadminOnly(back);
+  void form;
+
+  const result = await sendToOps(`✅ Nexus-K back office is connected. Telegram support is live.`);
+  if (!result.ok) fail(back, `Test message failed: ${result.error}`);
+  done(back, "Test message sent.");
 }
 
 export async function saveUserProfile(form: FormData) {

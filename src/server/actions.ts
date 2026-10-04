@@ -12,21 +12,10 @@ import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import { prisma } from "@/lib/prisma";
 import { clearSession, getSession, setSession } from "@/lib/session";
-import { engineSigninPlayer, engineSignup } from "@/lib/engine";
+import { engineSigninPlayer } from "@/lib/engine";
 import { claimBonus } from "@/lib/wallet";
-import { paySignupBonuses } from "@/server/signup-bonuses";
 import { settingNumber } from "@/lib/settings";
-import { randomCode } from "@/lib/ids";
-
-/** Fresh, unguessable referral code, retried on the (unlikely) collision. */
-async function newRefCode(): Promise<string> {
-  for (let i = 0; i < 5; i++) {
-    const code = randomCode(8);
-    const taken = await prisma.user.findFirst({ where: { refCode: code }, select: { id: true } });
-    if (!taken) return code;
-  }
-  return randomCode(12);
-}
+import { newRefCode } from "@/server/ref-code";
 
 async function clientIp(): Promise<string> {
   const h = await headers();
@@ -36,52 +25,22 @@ void clientIp;
 
 /* ------------------------------------------------------------------- auth */
 
-export async function signup(formData: FormData) {
-  const email = String(formData.get("email") ?? "").trim().toLowerCase();
-  const password = String(formData.get("password") ?? "");
-  const refCode = String(formData.get("ref") ?? "").trim().toUpperCase();
-
-  if (!email || password.length < 6) {
-    redirect("/?error=Invalid+email+or+password+(min+6+chars)");
-  }
-  if (await prisma.user.findUnique({ where: { email } })) {
-    redirect("/?error=An+account+with+that+email+already+exists");
-  }
-
-  const uid = await engineSignup(email, password, email.split("@")[0]);
-  if (uid === null) redirect("/?error=Signup+failed+(email+may+exist)");
-  const auth = await engineSigninPlayer(email, password);
-  if (!auth) redirect("/?error=Signup+ok+but+signin+failed");
-
-  // A referral code is optional; linking it now (rather than at first deposit)
-  // is what makes the referrer bonus fire reliably.
-  const referrer = refCode
-    ? await prisma.user.findFirst({ where: { refCode }, select: { id: true, engineUid: true } })
-    : null;
-
-  const user = await prisma.user.create({
-    data: {
-      email,
-      passwordHash: await bcrypt.hash(password, 10),
-      engineUid: auth.uid,
-      username: email.split("@")[0],
-      refCode: await newRefCode(),
-      refById: referrer?.id ?? null,
-      lastLoginAt: new Date(),
-    },
-  });
-
-  await paySignupBonuses({
-    userId: user.id,
-    engineUid: auth.uid,
-    email,
-    referrer: referrer ? { id: referrer.id, engineUid: referrer.engineUid } : null,
-  });
-
-  await setSession(email, auth.uid, auth.access);
-  redirect("/lobby");
-}
-
+/**
+ * Player sign-in.
+ *
+ * There is no public registration: accounts are provisioned by an operator from
+ * /admin/users (`createPlayer`), which is also where the password a player types
+ * here gets set. `signup` used to live here and is gone on purpose — leaving it
+ * exported would keep the server-action endpoint callable by hand, which is the
+ * whole thing this removes.
+ *
+ * The `!user` branch below is a repair path, not a sign-up form. It is only
+ * reachable when the engine already holds an account for this email — made there
+ * directly, bypassing the back office — so the casino row is rebuilt to match
+ * rather than stranding the player on a wallet the app cannot read. Welcome and
+ * referral bonuses are deliberately *not* paid on this path: they belong to
+ * account creation, which only the back office does now.
+ */
 export async function login(formData: FormData) {
   const email = String(formData.get("email") ?? "").trim().toLowerCase();
   const password = String(formData.get("password") ?? "");

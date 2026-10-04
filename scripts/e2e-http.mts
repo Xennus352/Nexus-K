@@ -14,17 +14,22 @@
  *   pnpm db:e2e:http
  */
 import { prisma } from "@/lib/prisma";
-import { engineWalletGet, CID } from "@/lib/engine";
+import { engineWalletGet, engineSigninPlayer, CID } from "@/lib/engine";
+import { settingNumber } from "@/lib/settings";
 import { randomBytes } from "node:crypto";
 
 const APP = (process.env.APP_URL ?? "http://localhost:3000").replace(/\/$/, "");
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "admin@nexus-k.test";
 
 let failures = 0;
+const failedLabels: string[] = [];
 function check(label: string, actual: unknown, expected: unknown) {
   const ok = JSON.stringify(actual) === JSON.stringify(expected);
   console.log(`${ok ? "PASS" : "FAIL"}  ${label}${ok ? "" : ` (got ${JSON.stringify(actual)}, want ${JSON.stringify(expected)})`}`);
-  if (!ok) failures++;
+  if (!ok) {
+    failures++;
+    failedLabels.push(label);
+  }
 }
 
 /* ------------------------------------------------------------------ helpers */
@@ -96,10 +101,15 @@ async function main() {
   const ping = await fetch(`${process.env.SLOTOPOL_URL ?? "http://localhost:8080"}/ping`).catch(() => null);
   if (!ping?.ok) throw new Error("engine is not reachable on SLOTOPOL_URL");
 
-  const adminRes = await fetch(`${APP}/admin/login`);
-  check("admin login page is reachable", adminRes.status, 200);
-
   /* ------------------------------------------------------------ admin cookie */
+  // Minted first, before a single request goes out to the app.
+  //
+  // This spawns `tsx`, which is synchronous: it blocks the event loop for a couple
+  // of seconds. Any keep-alive socket opened before that goes stale while the loop
+  // is blocked, and undici then hands the next request a half-closed socket — the
+  // server reads it, starts streaming, and the connection dies mid-body. It shows
+  // up as `fetch failed / UND_ERR_SOCKET`, which looks like a server bug and is
+  // not one. Minting up front keeps the blocking call away from live connections.
   const { execFileSync } = await import("node:child_process");
   const minted = execFileSync(
     "npx",
@@ -109,13 +119,15 @@ async function main() {
   const adminCookie = /^nk_admin=(.+)$/m.exec(minted.trim())?.[1] ?? "";
   if (!adminCookie) throw new Error("could not mint an admin cookie");
   const adminHeader = `nk_admin=${adminCookie}`;
-  const adminPage = await html("/admin", adminHeader);
-  check("admin cookie opens the dashboard", adminPage.includes("BACK OFFICE"), true);
 
-  /* --------------------------------------------------------- create a player */
-  // `mint-player-cookie.mts` owns registration: it signs the player up in the
-  // engine and creates the mongo row in one place, so this test cannot drift
-  // from what a real sign-up produces.
+  // Same reasoning for the player session: this is the second blocking spawn, so
+  // it belongs here too rather than halfway through the money checks.
+  //
+  // `mint-player-cookie.mts` owns test-fixture registration: it signs the player
+  // up in the engine and creates the mongo row in one place, so the assertions
+  // below cannot drift from what a real account looks like. The player-facing
+  // signup form is gone, so this is no longer how accounts are made — it is just
+  // how this script gets a session to drive the payment routes with.
   const email = `http-${randomBytes(4).toString("hex")}@nexus-k.test`;
   const password = randomBytes(8).toString("hex");
   const player = execFileSync(
@@ -130,6 +142,127 @@ async function main() {
   if (!user) throw new Error("player row missing after mint");
   session.userId = user.id;
 
+  // The staff sign-in moved to /portal; /admin/login is kept as a redirect so old
+  // bookmarks still land somewhere useful. Both are checked: one must render, the
+  // other must bounce.
+  const portalRes = await fetch(`${APP}/portal`);
+  check("staff portal is reachable", portalRes.status, 200);
+
+  const legacyLogin = await fetch(`${APP}/admin/login`, { redirect: "manual" });
+  check(
+    "/admin/login redirects to /portal",
+    legacyLogin.headers.get("location"),
+    "/portal"
+  );
+
+  const adminPage = await html("/admin", adminHeader);
+  check("admin cookie opens the dashboard", adminPage.includes("BACK OFFICE"), true);
+
+  /* --------------------------------------- the back office provisions players */
+  // Public registration is gone, so `createPlayer` on /admin/users is the only way
+  // an account comes into existence. It is exercised here through the real form —
+  // scraped $ACTION_ID, multipart POST — rather than by calling the action
+  // in-process, because it depends on the admin cookie and would otherwise be
+  // tested without the permission check that matters most.
+  const welcome = await settingNumber("bonus.welcome", 0);
+  const referral = await settingNumber("bonus.referral", 0);
+
+  const usersPage = await html("/admin/users", adminHeader);
+  const createAction = findActionId(usersPage, "Create account");
+  if (!createAction) throw new Error("no create-player form on /admin/users — the action is not wired");
+
+  const first = `prov-${randomBytes(4).toString("hex")}@nexus-k.test`;
+  const firstPass = randomBytes(8).toString("hex");
+  const created = await api("/admin/users", {
+    form: {
+      [createAction]: "",
+      email: first,
+      password: firstPass,
+      username: "prov1",
+      refCode: "",
+    },
+    cookie: adminHeader,
+  });
+  check("create player redirects", created.status, 303);
+  check("create player reports success", created.location.includes("ok="), true);
+
+  const row = await prisma.user.findUnique({ where: { email: first } });
+  check("the casino row exists", row !== null, true);
+  check("it is bound to an engine account", typeof row?.engineUid === "number", true);
+  check("it was given a referral code", (row?.refCode ?? "").length > 0, true);
+
+  // The engine account must exist with the same password, or the player could
+  // never actually sign in to the app we just created a row for.
+  const auth = await engineSigninPlayer(first, firstPass);
+  check("the engine accepts the new credentials", auth !== null, true);
+
+  // New engine accounts are granted a starting balance (1000 in the bundled
+  // engine); the welcome bonus is added on top, and that part is what this action
+  // is responsible for. Asserted as "at least the grant plus the bonus" so the
+  // check does not break if the engine's own grant is ever changed.
+  const granted = (await engineWalletGet(auth?.uid ?? 0))?.wallet ?? 0;
+  check("the welcome bonus was credited", granted - welcome >= 1000, true);
+
+  // Replaying the same form must not create a second player or double-pay.
+  const dup = await api("/admin/users", {
+    form: { [createAction]: "", email: first, password: firstPass, username: "prov1", refCode: "" },
+    cookie: adminHeader,
+  });
+  check("a duplicate email is refused", dup.location.includes("error="), true);
+  check(
+    "the duplicate created nothing",
+    await prisma.user.count({ where: { email: first } }),
+    1
+  );
+
+  /* ------------------------------------------- a referred player pays both sides */
+  const second = `prov-${randomBytes(4).toString("hex")}@nexus-k.test`;
+  const secondPass = randomBytes(8).toString("hex");
+  const beforeReferrer = (await engineWalletGet(row?.engineUid ?? 0))?.wallet ?? 0;
+
+  const referred = await api("/admin/users", {
+    form: {
+      [createAction]: "",
+      email: second,
+      password: secondPass,
+      username: "prov2",
+      refCode: row?.refCode ?? "",
+    },
+    cookie: adminHeader,
+  });
+  check("a referred player is created", referred.location.includes("ok="), true);
+
+  const child = await prisma.user.findUnique({ where: { email: second } });
+  check("the referral is linked", child?.refById, row?.id);
+  check(
+    "the referrer was paid their side",
+    (await engineWalletGet(row?.engineUid ?? 0))?.wallet,
+    beforeReferrer + referral
+  );
+
+  const childAuth = await engineSigninPlayer(second, secondPass);
+  const childWallet = (await engineWalletGet(childAuth?.uid ?? 0))?.wallet ?? 0;
+  check(
+    "the referred player was paid their side",
+    childWallet - welcome - referral >= 1000,
+    true
+  );
+
+  // A typo in the code is an operator mistake, not a reason to drop the referral.
+  const badRef = await api("/admin/users", {
+    form: {
+      [createAction]: "",
+      email: `prov-${randomBytes(4).toString("hex")}@nexus-k.test`,
+      password: randomBytes(8).toString("hex"),
+      username: "prov3",
+      refCode: "NOSUCHCODE",
+    },
+    cookie: adminHeader,
+  });
+  check("an unknown referral code is refused", badRef.location.includes("error="), true);
+
+  /* --------------------------------------------------------- create a player */
+  // The session was minted at the top of the run, next to the admin cookie.
   const start = await wallet();
   check("player starts with the engine's grant", start >= 1000, true);
   // Player pages stream a loading shell and redirect client-side when signed out,
@@ -259,6 +392,10 @@ async function main() {
   check("ledger sums to the live wallet", start + total, await wallet());
   check("deposit and refund are both on the ledger", new Set(rows.map((r) => r.type)), new Set(["deposit", "refund"]));
 
+  // Names repeated in the summary so a failure is identifiable without scrolling
+  // back through the log — several checks assert live balances, and knowing
+  // *which* one is what tells you whether it is a real regression or a blip.
+  if (failedLabels.length > 0) console.log(`failed: ${failedLabels.join(" | ")}\n`);
   console.log(`\n=== ${failures === 0 ? "ALL CHECKS PASSED" : `${failures} CHECK(S) FAILED`}\n`);
   void CID;
 }

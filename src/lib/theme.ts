@@ -82,7 +82,29 @@ const PACKS: { keys: string[]; t: Theme }[] = [
     },
   },
   {
-    keys: ["greek", "olympus", "zeus", "athena", "gods", "hero", "troy", "medusa", "myth"],
+    // Ahead of the older "greek" pack below: the Zeus pack's art is gold on
+    // storm-blue, so a sky accent washed it out.
+    keys: ["zeus", "olympus", "greek", "poseidon", "athena", "pegasus", "trident", "parthenon"],
+    t: {
+      cover: "from-amber-500/80 to-indigo-950", accent: "#fbbf24", accentText: "text-amber-200",
+      bgA: "#1e3a8a", bgB: "#070b18",
+      symbols: ["⚡", "🏛️", "🛡️", "🔱", "🦅", "🍇", "💎", "🗝️"], scene: "⚡", tagline: "Gifts of the Gods",
+    },
+  },
+  {
+    keys: ["viking", "nordic", "valhalla", "ragnarok", "ragnar", "seax", "mjolnir",
+      "thor", "fenrir", "jormungandr", "asgard", "jotun", "rune", "fjord", "clan",
+      "longhouse", "berserk", "mead"],
+    t: {
+      // Palette lifted straight out of the gptViking textures: mossy pine,
+      // weathered iron, snow and granite (see scripts/optimize-assets.sh).
+      cover: "from-emerald-800/80 to-slate-950", accent: "#6ee7b7", accentText: "text-emerald-200",
+      bgA: "#1f3d34", bgB: "#070d0f",
+      symbols: ["🪓", "🛡️", "⚔️", "🪵", "🐻", "🦅", "💎", "🧭"], scene: "🪓", tagline: "Sons of the North",
+    },
+  },
+  {
+    keys: ["greek", "olympus", "athena", "gods", "hero", "troy", "medusa", "myth"],
     t: {
       cover: "from-sky-500/80 to-slate-900", accent: "#7dd3fc", accentText: "text-sky-200",
       bgA: "#0369a1", bgB: "#05182b",
@@ -170,8 +192,23 @@ const LUX = "/gfx/lux";
 const BTN = "/gfx/btn";
 const MULT = "/gfx/mult";
 const BADGE = "/gfx/badge";
+// The three packs in public/assets, derived to WebP by scripts/optimize-assets.sh.
+const ZEUS = "/gfx/zeus";
+const EGYPT = "/gfx/egypt";
+const VIKING = "/gfx/viking";
 
-export type PackKind = "kemet" | "classic" | "fruits2" | "pixelfood" | "fantasy" | "lux";
+export type PackKind =
+  | "kemet" | "classic" | "fruits2" | "pixelfood" | "fantasy" | "lux"
+  | "zeus" | "egypt" | "viking";
+
+export type ButtonSet = {
+  spin: string;
+  auto: string;
+  keep: string;
+  minus: string;
+  plus: string;
+  menu: string;
+};
 
 export type AssetPack = {
   kind: PackKind;
@@ -194,6 +231,8 @@ export type AssetPack = {
   gemTiles?: string[];
   /** Pixel-art packs get a subtle grid overlay on the reel window. */
   pixelGrid?: boolean;
+  /** Control plates from the pack itself, when it ships them. */
+  buttons?: ButtonSet;
 };
 
 const KEMET_GEM = ["ankh-gem", "eye-gem", "necklace-gem", "scarab-gem", "wild"];
@@ -310,7 +349,114 @@ const LUX_PACK: AssetPack = {
   kind: "lux", images: LUX_IMAGES, wildIndex: LUX_WILD,
 };
 
-const KEMET_KEYWORDS = ["egypt", "pyramid", "pharaoh", "cleopatra", "anubis", "kemet", "scarab", "sphinx", "mummy"];
+/* ------------------------------------------------- zeus (slot complete pack) */
+
+// 28 symbols, ordered low-to-high the way a paytable reads: card ranks, then
+// gems and coins, then the Greek regalia, then the multiplier/feature marks, the
+// wild and the hero portrait. The order only matters for how the eye reads a
+// stopped reel; the engine indexes symbols by number, and `Player` wraps the
+// index with `%`, so a pack only has to be long enough to look varied.
+const ZEUS_NAMES = [
+  "symbol_K", "symbol_Q", "symbol_J", "symbol_A",
+  "blue_gem", "red_gem", "purple_gem",
+  "silver_coin", "gold_coin",
+  "greek_vase", "golden_chalice", "golden_lyre",
+  "laurel_wreath", "greek_helmet",
+  "trident", "sun_medallion", "storm_orb",
+  "pegasus",
+  "multiplier_x2", "multiplier_x3", "multiplier_x5", "multiplier_x10",
+  "bonus_star", "free_spins_badge", "lightning_scatter",
+  "jackpot_crown",
+  "olympus_temple_wild",
+  "zeus_portrait",
+];
+const ZEUS_IMAGES = ZEUS_NAMES.map((n) => `${ZEUS}/sym/${n}.webp`);
+const ZEUS_WILD = ZEUS_NAMES.indexOf("olympus_temple_wild");
+
+// Three painted scenes ship with the pack; games rotate over them.
+const ZEUS_SCENES = ["olympus_sunrise", "lightning_storm", "cloud_temple"].map(
+  (n) => `${ZEUS}/bg/${n}.webp`
+);
+
+// The pack ships a full control set; `stop` doubles as the turbo/cancel plate.
+const ZEUS_BUTTONS: ButtonSet = {
+  spin: `${ZEUS}/btn/spin.webp`,
+  auto: `${ZEUS}/btn/auto.webp`,
+  keep: `${ZEUS}/btn/stop.webp`,
+  minus: `${ZEUS}/btn/bet_minus.webp`,
+  plus: `${ZEUS}/btn/bet_plus.webp`,
+  menu: `${ZEUS}/btn/menu.webp`,
+};
+
+const ZEUS_PACK: AssetPack = {
+  kind: "zeus",
+  images: ZEUS_IMAGES,
+  wildIndex: ZEUS_WILD,
+  /** The pack's own reel-window frame, drawn behind the reels. */
+  emptyFrame: `${ZEUS}/ui/reel_frame.webp`,
+  bg: ZEUS_SCENES[0],
+  bigwin: `${ZEUS}/feat/mega_win.webp`,
+  bigwinDecor: `${ZEUS}/feat/big_win.webp`,
+  character: `${ZEUS}/sym/zeus_portrait.webp`,
+  buttons: ZEUS_BUTTONS,
+};
+
+/* ------------------------------------------------------ egypt (7 emblems) */
+
+// Only seven emblems in the drop — ankh ×3 in three metals, scarab ×2, khopesh,
+// udjat — so they are ordered by value and cycle (`Player` wraps the symbol index
+// with `%`, so a short set is safe). A seven-symbol reel reads as a deliberate
+// emblem game rather than a broken pack.
+//
+// There is no `bg`: the drop shipped no scene, so these games keep the themed
+// cabinet treatment instead of a backdrop. The emblems carry the theme themselves.
+const EGYPT_NAMES = [
+  "udjat", "redankh", "blueankh", "turquoiseankh", "scarab", "goldscarab", "khopesh",
+];
+const EGYPT_IMAGES = EGYPT_NAMES.map((n) => `${EGYPT}/${n}.webp`);
+
+const EGYPT_PACK: AssetPack = {
+  kind: "egypt",
+  images: EGYPT_IMAGES,
+  character: `${EGYPT}/goldscarab.webp`,
+};
+
+/* -------------------------------------------------------------- viking */
+
+// gptViking shipped 38 low-poly models but only their diffuse textures, and a UV
+// atlas is unusable as reel art (every one measures 56-64 distinct colours after
+// quantising to 64 — i.e. pure noise). What they *do* carry is material and
+// palette: moss, wet pine, snow, granite, iron. scripts/optimize-assets.sh
+// dissolves eight of them into one nordic panorama, so the pack is that backdrop
+// plus the high-res LUX symbols, which read cleanly against it.
+//
+// No `character`: the drop has no figure that survives being cropped to a 40px
+// avatar, so these games take the cabinet's crown fallback rather than borrow a
+// mark from an unrelated pack. (An earlier pass pointed it at the egypt khopesh,
+// which put an Egyptian dagger in the header of a Norse game.)
+const VIKING_PACK: AssetPack = {
+  kind: "viking",
+  images: LUX_IMAGES,
+  wildIndex: LUX_WILD,
+  bg: `${VIKING}/bg.webp`,
+};
+
+// Checked before KEMET_KEYWORDS: the gptEgypt emblems are better art for a game
+// named outright after Egypt or a pharaoh, while anubis/pyramid/sphinx/mummy
+// stay on the richer RSG kemet pack (5 symbols but with framed gems, a cabinet,
+// a logo and a mascot behind them).
+const EGYPT_KEYWORDS = ["egypt", "pharaoh", "cleopatra", "scarab", "ankh", "khopesh", "udjat"];
+const ZEUS_KEYWORDS = [
+  "zeus", "olymp", "greek", "poseidon", "athena", "hera", "hercules", "apollo",
+  "ares", "artemis", "hades", "perseus", "odyssey", "minotaur", "troy", "trojan",
+  "parthenon", "sparta", "myth", "pegasus", "trident",
+];
+const VIKING_KEYWORDS = [
+  "viking", "nordic", "valhalla", "ragnarok", "ragnar", "seax", "mjolnir",
+  "thor", "fenrir", "jormungandr", "asgard", "jotun", "rune", "fjord", "clan",
+  "longhouse", "berserk", "mead",
+];
+const KEMET_KEYWORDS = ["pyramid", "anubis", "kemet", "sphinx", "mummy", "tomb", "nile"];
 const FANTASY_KEYWORDS = ["pixel", "8bit", "8-bit", "retro", "arcade", "fantasy"];
 const LUX_KEYWORDS = [
   "lucky", "luxur", "deluxe", "mega", "jackpot", "diamond", "crown", "royal",
@@ -327,6 +473,11 @@ const FRUIT_KEYWORDS = [
  */
 export function assetFor(alias: string): AssetPack {
   const n = alias.toLowerCase();
+  if (ZEUS_KEYWORDS.some((k) => n.includes(k))) {
+    return { ...ZEUS_PACK, bg: ZEUS_SCENES[hash(alias) % ZEUS_SCENES.length] };
+  }
+  if (VIKING_KEYWORDS.some((k) => n.includes(k))) return VIKING_PACK;
+  if (EGYPT_KEYWORDS.some((k) => n.includes(k))) return EGYPT_PACK;
   if (KEMET_KEYWORDS.some((k) => n.includes(k))) return KEMET_PACK;
   if (LUX_KEYWORDS.some((k) => n.includes(k))) return LUX_PACK;
   if (FANTASY_KEYWORDS.some((k) => n.includes(k))) return FANTASY_PACK;
@@ -338,17 +489,16 @@ export function assetFor(alias: string): AssetPack {
   return rotation[hash(alias) % rotation.length];
 }
 
-export type ButtonSet = {
-  spin: string;
-  auto: string;
-  keep: string;
-  minus: string;
-  plus: string;
-  menu: string;
-};
-
-/** Deterministic plate art: a game keeps the same button look, games differ. */
+/**
+ * Deterministic plate art: a game keeps the same button look, games differ.
+ *
+ * Packs that ship their own control set (the Zeus pack does) win over the shared
+ * `/gfx/btn` plates, so a Zeus game is styled end to end rather than wearing
+ * generic buttons on top of its own symbols.
+ */
 export function buttonsFor(alias: string): ButtonSet {
+  const own = assetFor(alias).buttons;
+  if (own) return own;
   const h = hash(alias);
   const wide = (salt: number) => BTN_WIDE[(h + salt) % BTN_WIDE.length];
   const round = (salt: number) => BTN_ROUND[(h + salt) % BTN_ROUND.length];
@@ -490,12 +640,16 @@ export function sceneFor(alias: string, cols: number): Scene {
   const a = t.accent;
   const n = alias.toLowerCase();
 
-  // Egyptian cabinet art; the fantasy cabinets are used as a dimmed backdrop.
+  // Packs that ship their own backdrop art: the Egyptian cabinet, the Zeus
+  // scenes, the viking panorama; the fantasy cabinets are used as dimmed art.
   let image: string | undefined;
-  if (pack.kind === "kemet" && pack.bg) image = pack.bg;
-  else if (pack.kind === "fantasy") image = `${FANTASY}/machine-${cols >= 4 ? 4 : 1}.webp`;
+  if (pack.bg && (pack.kind === "kemet" || pack.kind === "zeus" || pack.kind === "viking")) {
+    image = pack.bg;
+  } else if (pack.kind === "fantasy") {
+    image = `${FANTASY}/machine-${cols >= 4 ? 4 : 1}.webp`;
+  }
 
-  // Egyptian art already ships a full room, so it keeps the theme treatment.
+  // Art already ships a full room, so it keeps the theme treatment.
   const isArt = Boolean(image);
   const wantsVip = !isArt && VIP_KEYWORDS.some((k) => n.includes(k));
   // Keywords first, then a hash share so the fiery art reaches beyond the

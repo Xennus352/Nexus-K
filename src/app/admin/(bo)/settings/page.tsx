@@ -5,9 +5,10 @@
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/admin-session";
 import { SETTING_DEFS, loadSettings } from "@/lib/settings";
-import { Button, PageTitle, Panel } from "@/components/ui";
+import { Button, Notice, PageTitle, Panel } from "@/components/ui";
 import { Flash } from "@/components/admin/parts";
-import { saveSettingsAction } from "@/server/admin-actions";
+import { detectTelegramChat, saveSettingsAction, testTelegram } from "@/server/admin-actions";
+import { botHandle, telegramConfigured } from "@/lib/telegram";
 
 export const dynamic = "force-dynamic";
 
@@ -35,12 +36,17 @@ export default async function AdminSettingsPage({
 
   // Read through loadSettings so a key with no row yet still renders (and gets
   // created) rather than showing an empty box for an unset value.
-  const [values, rows] = await Promise.all([
+  const [values, rows, handle] = await Promise.all([
     loadSettings(),
     prisma.setting.findMany({ select: { key: true, updatedAt: true } }),
+    // One extra call, and only on this page: it is the one place the operator
+    // needs to see the resolved @handle to know which bot the players will hit.
+    botHandle(),
   ]);
   const updatedAt = new Map(rows.map((r) => [r.key, r.updatedAt]));
   const isSuper = admin.role === "superadmin";
+  const hasToken = telegramConfigured();
+  const chatId = values.get("support.telegram_chat") ?? "";
 
   const groups = ["general", "payment", "bonus", "misc"] as const;
 
@@ -52,6 +58,58 @@ export default async function AdminSettingsPage({
       />
 
       <Flash ok={sp.ok} error={sp.error} />
+
+      {/* Telegram is wired from the environment plus one click here, so it gets a
+          short instruction panel rather than living inside the generic form. */}
+      <Panel title="TELEGRAM SUPPORT">
+        {!hasToken ? (
+          <Notice tone="info">
+            Set <code className="text-amber-200">TELEGRAM_BOT_TOKEN</code> in the environment and restart to
+            offer Telegram as a support channel. Everything else on this page keeps working without it.
+          </Notice>
+        ) : (
+          <div className="space-y-4">
+            <p className="text-sm text-slate-300">
+              Bot{" "}
+              <span className="font-mono text-sky-300">
+                {handle ? `@${handle}` : "not resolved — check the token"}
+              </span>{" "}
+              {chatId ? (
+                <>
+                  is sending notifications to chat{" "}
+                  <span className="font-mono text-sky-300">{chatId}</span>.
+                </>
+              ) : (
+                <span className="text-amber-300">
+                  has no notification chat yet. Open a chat with the bot, send it any message, then detect it
+                  below.
+                </span>
+              )}
+            </p>
+
+            {isSuper && (
+              <div className="flex flex-wrap gap-3">
+                <form action={detectTelegramChat}>
+                  <Button tone="ghost" type="submit">
+                    Detect from bot
+                  </Button>
+                </form>
+                <form action={testTelegram}>
+                  <Button tone="ghost" type="submit" disabled={!chatId}>
+                    Send test message
+                  </Button>
+                </form>
+              </div>
+            )}
+
+            <p className="text-xs leading-relaxed text-slate-500">
+              Players get a &ldquo;Message us on Telegram&rdquo; button on the support pages that deep-links to
+              the bot with their ticket number. New tickets and player replies arrive here. The token itself is
+              never shown here — it stays in the environment.
+            </p>
+          </div>
+        )}
+      </Panel>
 
       <form action={saveSettingsAction} className="space-y-6">
         {groups.map((group) => {

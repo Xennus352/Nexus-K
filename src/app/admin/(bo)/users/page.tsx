@@ -6,7 +6,9 @@ import { requireAdmin } from "@/lib/admin-session";
 import { setting } from "@/lib/settings";
 import { fmt } from "@/lib/money";
 import { Empty, PageTitle, Panel, StatusBadge, Table, formatDate } from "@/components/ui";
-import { Pager, RowLink, pageOf } from "@/components/admin/parts";
+import { Flash, Pager, RowLink, pageOf } from "@/components/admin/parts";
+import { createPlayer } from "@/server/admin-actions";
+import NewPlayerForm from "@/components/admin/NewPlayerForm";
 
 export const dynamic = "force-dynamic";
 
@@ -15,9 +17,9 @@ const PAGE_SIZE = 50;
 export default async function AdminUsersPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; status?: string; page?: string }>;
+  searchParams: Promise<{ q?: string; status?: string; page?: string; ok?: string; error?: string }>;
 }) {
-  await requireAdmin();
+  const admin = await requireAdmin();
   const sp = await searchParams;
 
   const q = (sp.q ?? "").trim().slice(0, 80);
@@ -64,6 +66,13 @@ export default async function AdminUsersPage({
   return (
     <div className="space-y-6">
       <PageTitle title="Players" subtitle={`${total.toLocaleString()} account${total === 1 ? "" : "s"}`} />
+
+      <Flash ok={sp.ok} error={sp.error} />
+
+      {/* Public registration is closed, so this is the only way an account comes
+          into existence. Hidden from everyone but a superadmin, matching the
+          permission the action itself enforces. */}
+      {admin.role === "superadmin" && <NewPlayerForm action={createPlayer} />}
 
       <Panel>
         <form className="flex flex-wrap items-end gap-3">

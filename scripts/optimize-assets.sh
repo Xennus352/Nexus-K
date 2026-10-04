@@ -1,147 +1,208 @@
 #!/usr/bin/env bash
-# Regenerates the optimized WebP art in public/gfx from the original free asset
-# packs dropped into public/assets. Requires ImageMagick.
+# Derives the committed WebP art in public/gfx/{zeus,egypt,viking} from the three
+# packs dropped into public/assets:
+#
+#   public/assets/zeus_slot_complete_asset_pack   purpose-built slot art
+#   public/assets/gptEgypt                        7 ornate Egyptian emblems (RGBA)
+#   public/assets/gptViking/models/*/diffuse.jpg  low-poly 3D model textures
 #
 #   ./scripts/optimize-assets.sh
 #
-# The originals stay in public/assets (git-ignored, ~122 MB); public/gfx is the
-# committed, web-optimized derivative the app actually loads (~570 KB total).
+# Requires ImageMagick 7 (`magick`). public/assets is git-ignored; everything the
+# app loads is the small derivative written under public/gfx.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-K="public/assets/RSG Slot Asset Pack - Crowns of Kemet - Free/RSG-Slot-Asset-Pack-Crowns-of-Kemet-Free/PNG"
-C="public/assets/ville_seppanen_slots_symbols_asset_pack"
-F2="public/assets/Fruits Asset 2/Fruits Asset"
-F2O="public/assets/Fruits Asset 2/Fruits Asset/Black Outline"
-PF="public/assets/Free_pixel_food_16x16/Icons"
-XY="public/assets/Pixel Fantasy Slot Machine/Slot Machine"
-BT="public/assets/buttons"
-SL="public/assets/slots"
-TM="public/assets/times"
+SRC="public/assets"
+ZEUS="$SRC/zeus_slot_complete_asset_pack"
+EGY="$SRC/gptEgypt"
+VIK="$SRC/gptViking/models"
 OUT="public/gfx"
 
-for d in "$K" "$C" "$F2" "$PF" "$XY" "$BT" "$SL" "$TM"; do
-  [ -d "$d" ] || { echo "error: missing source pack: $d" >&2; exit 1; }
+command -v magick >/dev/null || { echo "error: ImageMagick 7 ('magick') not found" >&2; exit 1; }
+for d in "$ZEUS" "$EGY" "$VIK"; do
+  [ -d "$d" ] || { echo "error: missing source dir: $d" >&2; exit 1; }
 done
 
-mkdir -p "$OUT/sym" "$OUT/classic" "$OUT/fruits2" "$OUT/pixelfood" "$OUT/fantasy" \
-         "$OUT/lux" "$OUT/badge" "$OUT/btn" "$OUT/mult"
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
 
-conv() {
-  magick "$1" -auto-orient -strip -resize "$2" -quality 80 -define webp:method=6 "$3"
-  printf '  %-46s %s\n' "$3" "$(du -h "$3" | cut -f1)"
+# Cut size of a reel symbol, in px. Matches the other packs so no game looks
+# coarser or softer than its neighbours.
+SYMBOL_PX=192
+
+# --- key -------------------------------------------------------------------------
+# The zeus pack was cropped out of one sprite atlas, so symbols and buttons ship
+# with the atlas background still baked in (an opaque ~rgb(20,28,38) field, exactly
+# as its README warns). The subjects are all far brighter than that field, so
+# deriving alpha from a luminance ramp cuts them out cleanly while keeping the
+# dark interior detail that a flood-fill would eat.
+#
+#   $1 in  $2 ramp (lo,hi)  $3 out
+key() {
+  magick "$1" -colorspace sRGB \
+    \( +clone -colorspace gray -auto-level -level "$2" \) \
+    -alpha off -compose CopyOpacity -composite "$3"
 }
 
-# pixel art: nearest-neighbour upscale + lossless so the pixels stay crisp
-convpx() {
-  magick "$1" -auto-orient -strip -filter point -resize "$2" -quality 100 \
-    -define webp:lossless=true -define webp:method=6 "$3"
-  printf '  %-46s %s\n' "$3" "$(du -h "$3" | cut -f1)"
+# Symbols want a slightly more forgiving ramp than buttons: their art has deeper
+# shadows, and clipping those reads as a hole in the middle of the glyph.
+SYM_RAMP='12%,42%'
+BTN_RAMP='10%,34%'
+
+# Trim to the opaque subject, then re-centre in a square so every symbol carries
+# the same visual weight on the reel regardless of how the atlas cropped it.
+square() {
+  local in="$1" px="$2" out="$3"
+  magick "$in" \
+    -trim +repage \
+    -resize "${px}x${px}" \
+    -background none -gravity center -extent "${px}x${px}" \
+    "$out"
 }
 
-echo "Crowns of Kemet:"
-conv "$K/background/background.png"           1600x "$OUT/bg.webp"
-conv "$K/logo/logo_long.png"                   640x "$OUT/logo.webp"
-conv "$K/logo/logo_short.png"                   320x "$OUT/logo-short.webp"
-conv "$K/reel/reel_frame_filled.png"            512x "$OUT/frame.webp"
-conv "$K/reel/reel_frame_empty.png"             512x "$OUT/frame-empty.webp"
-conv "$K/popups/big_win.png"                    640x "$OUT/bigwin.webp"
-conv "$K/popups/big_win_decor.png"             1024x "$OUT/bigwin-decor.webp"
-conv "$K/characters/anubis.png"                 320x "$OUT/anubis.webp"
-conv "$K/characters/anubis_frame.png"           384x "$OUT/anubis-frame.webp"
-conv "$K/symbols/high/high_ankh_no_frame.png"   256x "$OUT/sym/ankh.webp"
-conv "$K/symbols/high/high_eye_no_frame.png"    256x "$OUT/sym/eye.webp"
-conv "$K/symbols/high/high_necklace_no_frame.png" 256x "$OUT/sym/necklace.webp"
-conv "$K/symbols/high/high_scarab_no_frame.png"   256x "$OUT/sym/scarab.webp"
-conv "$K/symbols/wild/wild.png"                 256x "$OUT/sym/wild.webp"
-# The framed variants dress the winning cells (a gem tile instead of a glyph).
-conv "$K/symbols/high/high_ankh.png"            256x "$OUT/sym/ankh-gem.webp"
-conv "$K/symbols/high/high_eye.png"             256x "$OUT/sym/eye-gem.webp"
-conv "$K/symbols/high/high_necklace.png"        256x "$OUT/sym/necklace-gem.webp"
-conv "$K/symbols/high/high_scarab.png"          256x "$OUT/sym/scarab-gem.webp"
+webp() { magick "$1" -strip -quality "${2:-86}" -define webp:method=6 "$3"; }
 
-echo "Classic symbols:"
-for n in apple bar bell cherry clover coin diamond die \
-         grapefruit heart horseshoe lemon orange plum seven watermelon; do
-  conv "$C/$n.png" 192x "$OUT/classic/$n.webp"
+# ---------------------------------------------------------------------- zeus --
+mkdir -p "$OUT/zeus/sym" "$OUT/zeus/bg" "$OUT/zeus/feat" "$OUT/zeus/btn" "$OUT/zeus/ui"
+
+count=0
+for f in "$ZEUS"/symbols/*.png; do
+  n="$(basename "$f" .png)"
+  key "$f" "$SYM_RAMP" "$TMP/k.png"
+  square "$TMP/k.png" "$SYMBOL_PX" "$TMP/s.png"
+  webp "$TMP/s.png" 90 "$OUT/zeus/sym/$n.webp"
+  count=$((count + 1))
+done
+echo "zeus: $count symbols"
+
+# Scenes are opaque and legitimately full-bleed, so they only need upscaling.
+count=0
+for f in "$ZEUS"/backgrounds/*.png; do
+  n="$(basename "$f" .png)"
+  # The sources are ~250px wide but get painted across a whole viewport.
+  magick "$f" -strip -resize 1280x720^ -gravity center -extent 1280x720 "$TMP/b.png"
+  webp "$TMP/b.png" 82 "$OUT/zeus/bg/$n.webp"
+  count=$((count + 1))
+done
+echo "zeus: $count backgrounds"
+
+for f in "$ZEUS"/feature_banners/*.png; do
+  n="$(basename "$f" .png)"
+  magick "$f" -strip -resize 512x224 "$TMP/b.png"
+  webp "$TMP/b.png" 88 "$OUT/zeus/feat/$n.webp"
+done
+echo "zeus: $(find "$OUT/zeus/feat" -name '*.webp' | wc -l) feature banners"
+
+count=0
+for f in "$ZEUS"/buttons/*.png; do
+  n="$(basename "$f" .png)"
+  key "$f" "$BTN_RAMP" "$TMP/k.png"
+  # Trim, then pad back out: the atlas crops are all different sizes and a bare
+  # trim leaves the small controls (close, help) visually lighter than spin.
+  square "$TMP/k.png" 128 "$TMP/s.png"
+  webp "$TMP/s.png" 90 "$OUT/zeus/btn/$n.webp"
+  count=$((count + 1))
+done
+echo "zeus: $count buttons"
+
+for f in "$ZEUS"/interface/*.png; do
+  n="$(basename "$f" .png)"
+  magick "$f" -strip -resize 512x512 "$TMP/b.png"
+  webp "$TMP/b.png" 86 "$OUT/zeus/ui/$n.webp"
+done
+echo "zeus: $(find "$OUT/zeus/ui" -name '*.webp' | wc -l) interface panels"
+
+# --------------------------------------------------------------------- egypt --
+# Already clean RGBA at 256px; nothing to key, just normalise the container.
+mkdir -p "$OUT/egypt"
+count=0
+for f in "$EGY"/*.png; do
+  n="$(basename "$f" .png | tr '[:upper:]' '[:lower:]')"
+  magick "$f" -auto-orient -trim +repage \
+    -resize "${SYMBOL_PX}x${SYMBOL_PX}" -background none -gravity center \
+    -extent "${SYMBOL_PX}x${SYMBOL_PX}" \
+    -strip -quality 92 -define webp:method=6 "$OUT/egypt/$n.webp"
+  count=$((count + 1))
+done
+echo "egypt: $count emblems"
+
+# -------------------------------------------------------------------- viking --
+# The viking drop is 38 low-poly FBX models, but only the diffuse textures were
+# exported and a UV atlas is unusable as reel art: each one is a full square of
+# unpainted UV islands (measured: 56-64 distinct colours after quantising to 64,
+# i.e. maximum noise). What they *are* good for is palette and material — moss,
+# weathered pine, snow, granite, iron — so they are composited into one wide
+# atmospheric panorama used as the viking cabinet backdrop and login-screen plate.
+mkdir -p "$OUT/viking"
+
+# model:crop-offset pairs. The offsets are fixed so re-running the script is
+# byte-stable, but each pulls a different part of its 1024² atlas so no two
+# fields look alike — tiling the same square eight times produced a visible
+# horizontal sawtooth, which is what this avoids.
+FIELDS=(
+  "Split Granite Shard:0:120"
+  "Snow-Capped Pine:340:60"
+  "Mossy Boulder:120:400"
+  "Large Viking Clan Hall:400:300"
+  "Coastal Cliff Fragment:60:260"
+  "Tall Pine Tree:280:440"
+  "Viking Watch Tower:180:180"
+  "Viking Elder:300:440"
+)
+
+fields=()
+i=0
+for spec in "${FIELDS[@]}"; do
+  m="${spec%%:*}"; rest="${spec#*:}"; ox="${rest%%:*}"; oy="${rest##*:}"
+  [ -f "$VIK/$m/diffuse.jpg" ] || { echo "warn: missing viking model: $m" >&2; continue; }
+
+  # Not every export is 1024² (Riverbed Pebbles ships at 256²), so clamp the crop
+  # window to the source instead of trusting the offsets above.
+  read -r sw sh <<<"$(magick identify -format '%w %h' "$VIK/$m/diffuse.jpg")"
+  cw=$(( sw < 520 ? sw : 520 )); ch=$(( sh < 520 ? sh : 520 ))
+  ox=$(( ox > sw - cw ? sw - cw : ox )); oy=$(( oy > sh - ch ? sh - ch : oy ))
+
+  # Blurred to the point of abstraction so it reads as weather and material
+  # rather than as UV islands, and pushed cold to build the nordic palette.
+  magick "$VIK/$m/diffuse.jpg" -auto-orient \
+    -crop "${cw}x${ch}+${ox}+${oy}" +repage \
+    -resize 1600x900! \
+    -blur 0x95 \
+    -modulate 104,116,100 \
+    "$TMP/field-$i.png"
+  fields+=("$TMP/field-$i.png")
+  i=$((i + 1))
 done
 
-echo "Fruits Asset 2 (outlined reel symbols + plain accents):"
-for i in 01 02 03 04 05 06 07 08 09 10 11 12 13; do
-  convpx "$F2O/$i.png" 800% "$OUT/fruits2/sym-$i.webp"
-  convpx "$F2/$i.png"  800% "$OUT/fruits2/plain-$i.webp"
-done
+if [ ${#fields[@]} -gt 0 ]; then
+  # Pairwise dissolve welds the fields into one smooth colour field.
+  weights=()
+  n=${#fields[@]}
+  for ((j = 0; j < n - 1; j++)); do weights+=("55,48,52,50,46,54,50,56"); done
+  magick "${fields[@]}" \
+    -define compose:args="$(IFS=,; echo "${weights[*]}")" \
+    -compose Dissolve -composite "$TMP/blend.png"
 
-echo "Free pixel art foods (fruit icons):"
-for n in fruit_apple fruit_apple-slice fruit_banana fruit_blueberry \
-         fruit_cherry fruit_grape_red fruit_greengrape fruit_kiwi \
-         fruit_lemon fruit_lime fruit_orange fruit_orange_slice \
-         fruit_peach fruit_strawberry fruit_watermelon fruit_watermelon_slice; do
-  convpx "$PF/$n.png" 800% "$OUT/pixelfood/$n.webp"
-done
+  # Night sky bleeding into a pale horizon glow, then dark tundra. Screen lifts
+  # the field over the top so its moss/slate material shows without the whole
+  # plate turning to grey mush the way Overlay did.
+  magick -size 1600x900 gradient:'#16263f-#3f6472' "$TMP/sky.png"
+  magick -size 1600x900 gradient:'#3f6472-#0a1019' "$TMP/ground.png"
+  magick "$TMP/sky.png" "$TMP/ground.png" -append "$TMP/base.png"
+  magick "$TMP/base.png" "$TMP/blend.png" -evaluate multiply 0.55 \
+    -compose Screen -composite "$TMP/step1.png"
 
-# The rest of the food pack becomes the food-court props that dress the cabinet
-# of every Pixel Food game, so all 100 icons are in play.
-mkdir -p "$OUT/food"
-while IFS= read -r -d '' f; do
-  n=$(basename "$f" .png)
-  [ -f "$OUT/pixelfood/$n.webp" ] && continue
-  convpx "$f" 800% "$OUT/food/$n.webp"
-done < <(find "$PF" -maxdepth 1 -type f -iname '*.png' -print0 | sort -z)
+  # Corner falloff only: the plate sits behind the cabinet and would otherwise
+  # pull focus off the reels at the edges.
+  magick -size 1600x900 xc:white -sparse-color bilinear \
+    '0,0 gray62  1600,0 gray62  800,430 white  0,900 gray62  1600,900 gray62' \
+    "$TMP/vig.png"
+  magick "$TMP/step1.png" "$TMP/vig.png" -compose Multiply -composite "$TMP/pano.png"
+  webp "$TMP/pano.png" 82 "$OUT/viking/bg.webp"
+  echo "viking: 1 panorama from ${#fields[@]} model textures"
+else
+  echo "viking: no textures found, skipped" >&2
+fi
 
-echo "Pixel Fantasy Slot Machine:"
-for i in 1 2 3 4 5; do
-  convpx "$XY/slot-machine$i.png" 100% "$OUT/fantasy/machine-$i.webp"
-done
-for i in 1 2 3 4; do
-  convpx "$XY/slot-symbol$i.png" 300% "$OUT/fantasy/symbol-$i.webp"
-done
-
-# The three newer packs are named by hand, so they are exported by name:
-#   slots  -> lux/sym-<name>.webp        reel symbols (jocker = wild)
-#   times  -> mult/m<n>.webp             gamble multipliers, badge/<name>.webp feature marks
-#   buttons-> btn/round-NN|wide-NN.webp  compact vs wide button plates
-img_w() { magick identify -format "%w" "$1"; }
-
-slug() { printf '%s' "$1" | tr '[:upper:] ' '[:lower:]-' | tr -cd 'a-z0-9-'; }
-
-is_squareish() {
-  local w h
-  w=$(img_w "$1")
-  h=$(magick identify -format "%h" "$1")
-  [ $((w * 100 / (h > 0 ? h : 1))) -le 130 ]
-}
-
-echo "Slots pack (luxury reel symbols):"
-while IFS= read -r -d '' f; do
-  name=$(basename "$f" .png)
-  conv "$f" 288x "$OUT/lux/$(slug "$name").webp"
-done < <(find "$SL" -type f -name '*.png' -print0 | sort -z)
-
-echo "Multipliers + feature badges:"
-while IFS= read -r -d '' f; do
-  name=$(basename "$f" .png)
-  slugname=$(slug "$name")
-  case "$slugname" in
-    [0-9]*x*) conv "$f" 400x "$OUT/mult/$slugname.webp" ;;
-    *)        conv "$f" 320x "$OUT/badge/$slugname.webp" ;;
-  esac
-done < <(find "$TM" -type f -name '*.png' -print0 | sort -z)
-
-echo "Buttons (round + wide):"
-round_n=0
-wide_n=0
-while IFS= read -r -d '' f; do
-  if is_squareish "$f"; then
-    round_n=$((round_n + 1))
-    conv "$f" 320x "$OUT/btn/round-$(printf '%02d' "$round_n").webp"
-  else
-    wide_n=$((wide_n + 1))
-    conv "$f" 640x "$OUT/btn/wide-$(printf '%02d' "$wide_n").webp"
-  fi
-done < <(find "$BT" -type f -name '*.png' -print0 | sort -z)
-
-echo "counts: buttons=$((round_n + wide_n)) (round=$round_n wide=$wide_n)"
-
-echo
-echo "total: $(du -sh "$OUT" | cut -f1)"
+du -sh "$OUT"/{zeus,egypt,viking} 2>/dev/null || true

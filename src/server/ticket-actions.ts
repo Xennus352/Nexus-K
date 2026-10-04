@@ -12,6 +12,7 @@ import { getSession } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { settingBool } from "@/lib/settings";
 import { ticketNumber } from "@/lib/ids";
+import { notifyNewTicket, notifyPlayerReply } from "@/lib/telegram";
 
 /** The player behind the current session, or null. */
 async function currentPlayer() {
@@ -57,6 +58,9 @@ export async function createTicket(formData: FormData) {
       },
     });
     revalidatePath("/support");
+    // Pushed to the operator's Telegram, if one is wired up. Never throws, so a
+    // Telegram outage cannot lose the ticket that was just committed.
+    await notifyNewTicket({ ticket, subject, category, priority, email: user.email, body });
     redirect(`/support/${ticket}`);
   }
 
@@ -82,6 +86,12 @@ export async function replyToTicket(formData: FormData) {
   await prisma.supportTicket.update({
     where: { id: ticket.id },
     data: { status: "open", lastReply: new Date() },
+  });
+  await notifyPlayerReply({
+    ticket: ticket.ticket,
+    subject: ticket.subject,
+    email: user.email,
+    body,
   });
   revalidatePath(`/support/${ticket.ticket}`);
   revalidatePath("/support");

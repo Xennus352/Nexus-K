@@ -18,10 +18,14 @@ import { ref, randomToken } from "@/lib/ids";
 import { randomBytes } from "node:crypto";
 
 let failures = 0;
+const failedLabels: string[] = [];
 function check(label: string, actual: unknown, expected: unknown) {
   const ok = JSON.stringify(actual) === JSON.stringify(expected);
   console.log(`${ok ? "PASS" : "FAIL"}  ${label}${ok ? "" : ` (got ${JSON.stringify(actual)}, want ${JSON.stringify(expected)})`}`);
-  if (!ok) failures++;
+  if (!ok) {
+    failures++;
+    failedLabels.push(label);
+  }
 }
 
 /** Asserts `ok: true`, surfacing the module's own error message when it is not. */
@@ -332,6 +336,7 @@ async function main() {
   await cancelDeposit(cancelRow!.id, "e2e");
   check("cancelling a deposit does not move the wallet", await walletOf(auth.uid), beforeCancelDep);
 
+  if (failedLabels.length > 0) console.log(`failed: ${failedLabels.join(" | ")}\n`);
   console.log(`\n=== ${failures === 0 ? "ALL CHECKS PASSED" : `${failures} CHECK(S) FAILED`}\n`);
   void CID;
   void engineWalletAdd;

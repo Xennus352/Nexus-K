@@ -12,9 +12,10 @@ export const dynamic = "force-dynamic";
  * hang per-request bookkeeping (a hit counter, an audit log) later on.
  *
  * The `(bo)` segment is a route group — it does not appear in the URL, so this
- * guards /admin and its children while `/admin/login` sits outside it. Putting
- * the gate at `src/app/admin/layout.tsx` would make the login page redirect to
- * itself.
+ * guards /admin and its children while the staff sign-in at /portal sits outside
+ * it entirely. Putting the gate at `src/app/admin/layout.tsx` would also capture
+ * `src/app/admin/login/page.tsx` (the redirect left behind for old bookmarks) and
+ * make it bounce to itself.
  */
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   // Resolve (and re-verify against the database) before rendering anything.

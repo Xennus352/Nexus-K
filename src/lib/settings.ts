@@ -40,6 +40,20 @@ export const SETTING_DEFS: readonly SettingDef[] = [
 
   { key: "kyc.required_for_withdraw", group: "misc", label: "Require approved KYC to withdraw", type: "bool", value: "0" },
   { key: "tickets.enabled", group: "misc", label: "Enable support tickets", type: "bool", value: "1" },
+
+  // Telegram support bridge. The bot token itself is never a setting — it is a
+  // credential and lives only in TELEGRAM_BOT_TOKEN. `telegram_chat` is the
+  // operator's chat id, which /admin/settings fills in from the bot's pending
+  // updates so nobody has to look theirs up by hand.
+  { key: "support.telegram_enabled", group: "misc", label: "Offer Telegram support", type: "bool", value: "1" },
+  {
+    key: "support.telegram_chat", group: "misc", label: "Telegram operator chat id", type: "text", value: "",
+    help: "Notifications land here. Use “Detect from bot” on this page after messaging the bot once.",
+  },
+  {
+    key: "support.telegram_handle", group: "misc", label: "Telegram bot username", type: "text", value: "",
+    help: "Optional. Leave blank to look it up from the bot token automatically.",
+  },
 ] as const;
 
 const GROUP = SETTING_DEFS.reduce<Record<string, SettingDef>>((acc, d) => {
