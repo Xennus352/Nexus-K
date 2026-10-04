@@ -136,12 +136,20 @@ export default async function AdminUsersPage({
 
       <div className="flex items-center justify-between gap-3">
         <Pager page={page} total={total} base={base} label="players" />
-        <Link
-          href="/admin/reports"
-          className="text-xs text-sky-400 hover:underline"
-        >
-          Aggregates in Reports →
-        </Link>
+        <div className="flex items-center gap-4">
+          {/* Superadmin-only, matching `bulkSetPasswords`. */}
+          {admin.role === "superadmin" && (
+            <Link
+              href={`/admin/users/credentials?q=${encodeURIComponent(q)}&status=${status}`}
+              className="text-xs text-sky-400 hover:underline"
+            >
+              Set passwords in bulk →
+            </Link>
+          )}
+          <Link href="/admin/reports" className="text-xs text-sky-400 hover:underline">
+            Aggregates in Reports →
+          </Link>
+        </div>
       </div>
     </div>
   );

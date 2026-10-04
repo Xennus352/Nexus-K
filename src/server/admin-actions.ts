@@ -32,12 +32,23 @@ import { move } from "@/lib/wallet";
 import { saveSettings, SETTING_DEFS, invalidateSettings } from "@/lib/settings";
 import { driverFor, readConfig, writeConfig } from "@/lib/payments/driver";
 import { fiatCurrencies, parseAmount } from "@/lib/money";
-import { engineSignup, engineSigninPlayer } from "@/lib/engine";
+import { engineSetPassword, engineSignup, engineSigninPlayer } from "@/lib/engine";
 import { paySignupBonuses } from "@/server/signup-bonuses";
 import { newRefCode } from "@/server/ref-code";
+import { generatePassword, mapWithLimit } from "@/server/credentials";
+import { putCredentialReport } from "@/server/credential-reports";
 import { discoverOpsChat, sendToOps, telegramConfigured } from "@/lib/telegram";
 
 /* ------------------------------------------------------------------- utils */
+
+/**
+ * Ceiling on one bulk credential run.
+ *
+ * Each row costs an engine round trip and a bcrypt hash, so this is a guard against
+ * a single request doing minutes of work behind a proxy timeout. Narrow the search
+ * rather than raising it.
+ */
+const MAX_BULK_CREDENTIALS = 100;
 
 function field(form: FormData, key: string, max = 200): string {
   return String(form.get(key) ?? "").trim().slice(0, max);
@@ -239,6 +250,160 @@ export async function createPlayer(form: FormData) {
   if (bonuses.referral) parts.push("referral bonus paid to the player.");
   if (bonuses.referrerUnpaid) parts.push("referrer is not paid yet (no engine wallet).");
   done(back, parts.join(" "));
+}
+
+/**
+ * Sets one player's password.
+ *
+ * Superadmin-only: this hands out the ability to sign in as any player, which is
+ * the same tier as `createPlayer` and `adjustBalance`.
+ *
+ * The engine is changed *before* the local row. Player sign-in authenticates
+ * against the engine and never reads `User.passwordHash`, so a reset that touched
+ * only Prisma would appear to succeed and then fail at the login form. Changing the
+ * engine first means a refusal leaves nothing half-updated.
+ *
+ * The local hash is kept in step even though nothing reads it today, so the column
+ * does not quietly go stale and mislead whoever wires it up later.
+ */
+export async function setPlayerPassword(form: FormData) {
+  const id = field(form, "id", 40);
+  const back = `/admin/users/${id}`;
+  await superadminOnly(back);
+
+  const password = String(form.get("password") ?? "");
+  // The engine's own floor is 6 (`ErrSmallKey`); matching it here means a password
+  // this form accepts is never one the engine will refuse a second later.
+  if (password.length < 6) fail(back, "Password must be at least 6 characters.");
+
+  const user = await prisma.user.findUnique({
+    where: { id },
+    select: { id: true, email: true, engineUid: true },
+  });
+  if (!user) fail("/admin/users", "Player not found.");
+  if (user.engineUid === null) {
+    fail(back, `${user.email} has no engine account yet, so there is no password to set.`);
+  }
+
+  const res = await engineSetPassword(user.engineUid, password);
+  if (!res.ok) fail(back, `The engine refused the change: ${res.detail}`);
+
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { passwordHash: await bcrypt.hash(password, 12) },
+  });
+
+  done(back, `Password changed for ${user.email}.`);
+}
+
+/**
+ * Sets passwords in bulk and hands the operator a CSV sheet of what it set.
+ *
+ * This is the only way to end up holding every player's password, and it gets there
+ * the honest way: every password is *new*. Existing ones are unrecoverable by
+ * design, so they are replaced rather than revealed — which is also why this is
+ * superadmin-only and why it demands an explicit confirmation.
+ *
+ * The sheet is held in memory for ten minutes (`credential-reports.ts`) and never
+ * written to the database.
+ */
+export async function bulkSetPasswords(form: FormData) {
+  const back = "/admin/users/credentials";
+  await superadminOnly(back);
+
+  if (!bool(form, "confirm")) {
+    fail(back, "Tick the confirmation box — this replaces the password of every player you selected.");
+  }
+
+  const mode = field(form, "mode", 20) === "single" ? "single" : "generate";
+  const shared = String(form.get("password") ?? "");
+  if (mode === "single" && shared.length < 6) {
+    fail(back, "A single shared password must be at least 6 characters.");
+  }
+
+  const q = field(form, "q", 80);
+  const rawStatus = field(form, "status", 10);
+  const status = rawStatus === "active" || rawStatus === "blocked" ? rawStatus : "";
+
+  const where = {
+    ...(status ? { status } : {}),
+    ...(q
+      ? {
+          OR: [
+            { email: { contains: q, mode: "insensitive" as const } },
+            { username: { contains: q, mode: "insensitive" as const } },
+            { refCode: { contains: q.toUpperCase() } },
+          ],
+        }
+      : {}),
+  };
+
+  const picked = form
+    .getAll("ids")
+    .map((v) => String(v).trim())
+    .filter(Boolean);
+
+  const takeAll = bool(form, "allMatching");
+  if (!takeAll && picked.length === 0) {
+    fail(back, "Select at least one player, or tick \"apply to everyone this search matches\".");
+  }
+
+  const select = { id: true, email: true, username: true, engineUid: true } as const;
+  const users = takeAll
+    ? await prisma.user.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        // The cap is a guard against an unbounded request: each row costs one engine
+        // round trip and one bcrypt hash, and a table this size is better narrowed
+        // with the search box than processed in one shot.
+        take: MAX_BULK_CREDENTIALS + 1,
+        select,
+      })
+    : await prisma.user.findMany({ where: { id: { in: picked.slice(0, MAX_BULK_CREDENTIALS) } }, select });
+
+  if (users.length === 0) fail(back, "No players matched that selection.");
+  if (users.length > MAX_BULK_CREDENTIALS) {
+    fail(
+      back,
+      `That selection is over the ${MAX_BULK_CREDENTIALS}-player limit. ` +
+        "Narrow the search so the sheet stays readable.",
+    );
+  }
+
+  // One password per player, or the same one for everyone. Assigned before any
+  // engine call so a failure part-way through still yields a sheet for the players
+  // that did change, rather than a blank page.
+  const plans = users.map((u) => ({ user: u, password: mode === "single" ? shared : generatePassword() }));
+
+  const outcomes = await mapWithLimit(plans, 8, async ({ user, password }) => {
+    if (user.engineUid === null) return { user, password, ok: false, why: "no engine account" };
+    const res = await engineSetPassword(user.engineUid, password);
+    if (!res.ok) return { user, password, ok: false, why: res.detail };
+    // Only the engine decides whether the player can sign in, so this local write is
+    // best-effort bookkeeping — a failure here must not lose a working password.
+    await prisma.user
+      .update({ where: { id: user.id }, data: { passwordHash: await bcrypt.hash(password, 12) } })
+      .catch(() => null);
+    return { user, password, ok: true, why: "" };
+  });
+
+  const rows = outcomes.filter((o) => o.ok).map((o) => ({
+    email: o.user.email,
+    username: o.user.username,
+    password: o.password,
+  }));
+  const failures = outcomes
+    .filter((o) => !o.ok)
+    .map((o) => `${o.user.email} — ${o.why}`);
+
+  if (rows.length === 0) {
+    fail(back, `No passwords were changed. ${failures.slice(0, 3).join(" | ")}`);
+  }
+
+  const token = putCredentialReport(rows, failures);
+  const parts = [`Password sheet for ${rows.length} player${rows.length === 1 ? "" : "s"}.`];
+  if (failures.length) parts.push(`${failures.length} could not be changed.`);
+  done(`${back}?report=${token}`, parts.join(" "));
 }
 
 /**

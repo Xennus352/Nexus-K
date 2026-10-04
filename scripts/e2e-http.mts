@@ -261,6 +261,94 @@ async function main() {
   });
   check("an unknown referral code is refused", badRef.location.includes("error="), true);
 
+  /* ------------------------------------------------ setting a player's password */
+  // There is no way to *read* a password — it is bcrypt here and a hashed secret in
+  // the engine — so the back office replaces them instead. That path has to reach the
+  // engine, because player sign-in authenticates there and never reads the local
+  // hash: a reset that touched only Prisma would look like it worked and then fail
+  // at the login form.
+  const detailPage = await html(`/admin/users/${row!.id}`, adminHeader);
+  const setPassAction = findActionId(detailPage, "Set password");
+  if (!setPassAction) throw new Error("no set-password form on the player page");
+  check("the player page offers a set-password form", setPassAction !== null, true);
+
+  const shortPass = await api(`/admin/users/${row!.id}`, {
+    form: { [setPassAction]: "", id: row!.id, password: "abc" },
+    cookie: adminHeader,
+  });
+  check("a password under the engine's 6-character floor is refused", shortPass.location.includes("error="), true);
+
+  const operatorPass = randomBytes(8).toString("hex");
+  const reset = await api(`/admin/users/${row!.id}`, {
+    form: { [setPassAction]: "", id: row!.id, password: operatorPass },
+    cookie: adminHeader,
+  });
+  check("setting a password redirects", reset.status, 303);
+  check("setting a password reports success", reset.location.includes("ok="), true);
+  check("the engine accepts the password it was just given", (await engineSigninPlayer(first, operatorPass)) !== null, true);
+  check("the password it replaced no longer works", (await engineSigninPlayer(first, firstPass)) === null, true);
+
+  const rehashed = await prisma.user.findUnique({ where: { id: row!.id }, select: { passwordHash: true } });
+  check("the local hash was brought into step", rehashed?.passwordHash !== row!.passwordHash, true);
+
+  /* ------------------------------------------------------- the bulk credential sheet */
+  // The one screen that ends up holding every player's password, so both halves of
+  // its guard are asserted: the confirmation box, and the superadmin check on the
+  // action itself (a server action is a public endpoint — hiding the form proves
+  // nothing on its own).
+  const credsPage = await html("/admin/users/credentials", adminHeader);
+  const bulkAction = findActionId(credsPage, "Set passwords and build the sheet");
+  if (!bulkAction) throw new Error("no bulk-credentials form — the action is not wired");
+
+  const unconfirmed = await api("/admin/users/credentials", {
+    form: { [bulkAction]: "", q: first, status: "", mode: "generate" },
+    cookie: adminHeader,
+  });
+  check("a bulk run without confirmation is refused", unconfirmed.location.includes("error="), true);
+  check("and it issues no report", unconfirmed.location.includes("report="), false);
+
+  const bulk = await api("/admin/users/credentials", {
+    form: {
+      [bulkAction]: "",
+      q: first,
+      status: "",
+      mode: "generate",
+      confirm: "1",
+      allMatching: "1",
+    },
+    cookie: adminHeader,
+  });
+  check("a confirmed bulk run redirects with a report", bulk.location.includes("report="), true);
+
+  // The generated password must be real, not a rendering artefact: it has to work
+  // against the engine, and the sheet it came from has to say so.
+  const reportToken = /report=([a-f0-9]+)/.exec(bulk.location)?.[1] ?? "";
+  const reportPage = await html(`/admin/users/credentials?report=${reportToken}`, adminHeader);
+  const raw = /aria-label="Generated credentials"[^>]*>([\s\S]*?)<\/textarea>/.exec(reportPage)?.[1] ?? "";
+  // A <textarea> holds RCDATA, so the browser decodes entities when it displays the
+  // value — and a generated password can contain `&`, which React writes as `&amp;`.
+  // Reading the markup without undoing that would hand the engine a mangled secret
+  // and look like a broken generator.
+  const sheet = raw
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, "&");
+  const sheetLines = sheet.trim().split("\n");
+  check("the sheet has a header and one row", sheetLines.length, 2);
+  check("the sheet names the player", sheetLines[1]?.startsWith(`${first},`), true);
+  // The generated alphabet excludes `,` and `"`, so a plain split is exact.
+  const generated = (sheetLines[1] ?? "").split(",")[2] ?? "";
+  check("the generated password is 12 characters", generated.length, 12);
+  check("the generated password actually signs in", (await engineSigninPlayer(first, generated)) !== null, true);
+
+  // A guessed or expired token must render the notice, never an empty sheet that
+  // could be mistaken for "no players matched".
+  const bogus = await html("/admin/users/credentials?report=" + "0".repeat(64), adminHeader);
+  check("a bogus report token yields no sheet", bogus.includes("aria-label=\"Generated credentials\""), false);
+  check("a bogus report token explains itself", bogus.includes("expired or the server restarted"), true);
+
   /* --------------------------------------------------------- create a player */
   // The session was minted at the top of the run, next to the admin cookie.
   const start = await wallet();

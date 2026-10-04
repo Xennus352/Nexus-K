@@ -18,7 +18,8 @@ import {
   formatDate,
 } from "@/components/ui";
 import { Flash, JsonView, TextField } from "@/components/admin/parts";
-import { adjustBalance, saveUserProfile, setUserStatus } from "@/server/admin-actions";
+import { adjustBalance, saveUserProfile, setPlayerPassword, setUserStatus } from "@/server/admin-actions";
+import PlayerPasswordForm from "@/components/admin/PlayerPasswordForm";
 
 export const dynamic = "force-dynamic";
 
@@ -170,7 +171,12 @@ export default async function AdminUserDetail({
           </Panel>
 
           {isSuper ? (
-            <Panel title="MANUAL BALANCE ADJUSTMENT">
+            <>
+              <Panel title="SET PASSWORD">
+                <PlayerPasswordForm action={setPlayerPassword} userId={user.id} email={user.email} />
+              </Panel>
+
+              <Panel title="MANUAL BALANCE ADJUSTMENT">
               <form action={adjustBalance} className="space-y-3">
                 <input type="hidden" name="id" value={user.id} />
                 <TextField name="amount" label="COINS" type="number" placeholder="1000" />
@@ -195,6 +201,7 @@ export default async function AdminUserDetail({
                 Recorded in the ledger against your username, so the movement is never silent.
               </p>
             </Panel>
+            </>
           ) : (
             <Panel title="MANUAL BALANCE ADJUSTMENT">
               <p className="text-sm text-slate-400">

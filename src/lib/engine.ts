@@ -134,6 +134,106 @@ export async function engineHealthy(): Promise<boolean> {
   }
 }
 
+/**
+ * Sent as `oldsecret` when the caller does not know the player's current password.
+ *
+ * The field is `binding:"required"` on the engine, so it cannot be omitted, and the
+ * engine only compares it when the caller *lacks* ALadmin. This value is therefore
+ * never inspected on an install whose admin holds ALadmin; it exists to satisfy the
+ * validator. A 403 is therefore a real permission problem, not a wrong guess.
+ */
+const UNKNOWN_OLD_SECRET = "-";
+
+export type SetPasswordResult =
+  | { ok: true }
+  | {
+      ok: false;
+      /** Coarse bucket, so callers can say something useful. */
+      reason: "no-engine-account" | "rejected" | "engine-error";
+      /** The engine's own message, passed through verbatim to help diagnose. */
+      detail: string;
+    };
+
+/**
+ * Changes a player's engine password.
+ *
+ * This is the only place a player password can actually be changed: player sign-in
+ * (`login` in src/server/actions.ts) authenticates against the engine and never
+ * reads the casino's `passwordHash`, so updating only the Prisma row would leave
+ * the player signing in with the old secret forever.
+ *
+ * `POST /user/secret` compares `oldsecret` against the stored secret *unless* the
+ * caller holds ALadmin (engine/api/user.go:130). The bundled engine admin carries
+ * ALadmin through its global access level (`GAL`), which `/prop/al/get` does not
+ * report — it returns only the per-club `Access`. So the admin can reset a password
+ * it has never seen. Pass `currentSecret` anyway when it happens to be known: it
+ * keeps the call working on an install whose admin lacks ALadmin.
+ */
+export async function engineSetPassword(
+  uid: number,
+  newSecret: string,
+  currentSecret?: string,
+  retry = true,
+): Promise<SetPasswordResult> {
+  let auth: EngineUser;
+  try {
+    auth = await engineAdmin();
+  } catch (err) {
+    return {
+      ok: false,
+      reason: "engine-error",
+      detail: err instanceof Error ? err.message : "engine admin sign-in failed",
+    };
+  }
+
+  let res: Response;
+  try {
+    res = await fetch(`${ENGINE}/user/secret`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${auth.access}` },
+      body: JSON.stringify({
+        uid,
+        oldsecret: currentSecret ?? UNKNOWN_OLD_SECRET,
+        newsecret: newSecret,
+      }),
+      cache: "no-store",
+    });
+  } catch (err) {
+    return {
+      ok: false,
+      reason: "engine-error",
+      detail: err instanceof Error ? err.message : "could not reach the engine",
+    };
+  }
+
+  // Same stale-token recovery as walletCall: one re-auth, then give up rather than
+  // reporting a permission failure that is really an expired admin token.
+  if (res.status === 401 && retry) {
+    forgetEngineAdmin();
+    return engineSetPassword(uid, newSecret, currentSecret, false);
+  }
+
+  if (res.status === 204) return { ok: true };
+
+  const detail = await res
+    .json()
+    .then((j: { what?: unknown }) => (typeof j?.what === "string" ? j.what : res.statusText))
+    .catch(() => res.statusText);
+
+  if (res.status === 404) return { ok: false, reason: "no-engine-account", detail };
+  if (res.status === 400) return { ok: false, reason: "rejected", detail };
+  if (res.status === 401 || res.status === 403) {
+    return {
+      ok: false,
+      reason: "rejected",
+      detail:
+        `${detail} — the engine admin needs ALadmin (its global access level) to change a ` +
+        "password it does not know. On this install that flag is present.",
+    };
+  }
+  return { ok: false, reason: "engine-error", detail: `${res.status} ${detail}` };
+}
+
 /** Registers a player in the engine. Called on first sign-up. */
 export async function engineSignup(
   email: string,

@@ -39,6 +39,40 @@ native `<details>`, so it works with JavaScript disabled.
 is a repair path for accounts created directly against the engine, not a sign-up form — it pays no
 bonuses.
 
+### Player passwords
+
+**Existing passwords cannot be read.** `User.passwordHash` is a one-way bcrypt hash and the engine keeps
+its own hashed secret, so there is no code path that can print one — not for an operator, not for a
+debug query. That is the property that makes the hash worth having. There is deliberately no
+"show all passwords" screen and no reversible column: either would turn a single database dump, or one
+accidental read of the users collection, into a complete credential breach for accounts that hold real
+balances.
+
+What the back office can do instead is *set* passwords, which is how you end up holding them:
+
+- **One player** — **Set password** on `/admin/users/<id>`. Writes the engine secret first, then the
+  local hash, so a refusal from the engine cannot leave the two stores disagreeing.
+- **Many players** — `/admin/users/credentials` (linked from the bottom of `/admin/users`). Pick players
+  or tick *apply to everyone this search matches*, and it assigns a fresh password to each and renders a
+  `email,username,password` CSV with copy and download buttons. Cap is 100 per run.
+
+Both are superadmin-only, matching `createPlayer` and `adjustBalance`. This is worth understanding
+before you use the bulk tool:
+
+- Every password it sets is **new**. It replaces, it does not reveal.
+- The sheet is held **in memory for ten minutes** and never written to the database, so it does not
+  survive a server restart and does not work behind more than one instance. Copy or download it
+  immediately.
+- The engine is changed through `POST /user/secret`, which compares `oldsecret` unless the caller holds
+  `ALadmin`. The bundled admin carries `ALadmin` through its *global* access level (`GAL`) — which
+  `/prop/al/get` does not report, as it returns only the per-club `Access`. That is why a reset works
+  for a password nobody ever saw. On an install whose engine admin lacks the flag, pass the current
+  secret or the call is refused.
+- Player sign-in authenticates **against the engine** and never reads `passwordHash`. A reset that
+  touched only Prisma would look like it worked and then fail at the login form.
+- A reset does **not** sign the player out. Sessions here are stateless httpOnly cookies, so there is
+  nothing to revoke; a session issued before the reset stays valid for up to a day.
+
 ## Staff sign-in (`/portal`)
 
 Back-office staff sign in at **`/portal`**, not at `/admin`. The two screens are deliberately
@@ -193,7 +227,11 @@ creates throwaway players, so they are safe to re-run.
   routes, and the admin buttons replayed from their rendered forms. This is the layer that catches a
   server action that was never wired to a form, which a logic-only test cannot see. It also covers
   `/portal`, the `/admin/login` redirect, and back-office player creation end to end: the row and the
-  engine account, the welcome bonus, a duplicate refusal, and a referral paying both sides.
+  engine account, the welcome bonus, a duplicate refusal, and a referral paying both sides. It also
+  covers the credential tools — a per-player reset proving the engine accepts the new secret and
+  rejects the old one, the 6-character floor, and a bulk run asserting that the confirmation box is
+  required, that the generated password in the CSV actually signs in, and that a guessed report token
+  renders the expiry notice rather than a sheet.
 
   It mints both cookies **before** any request goes out. The mint spawns `tsx`, which blocks the event
   loop; a keep-alive socket opened before that goes stale and the next request dies mid-body with
