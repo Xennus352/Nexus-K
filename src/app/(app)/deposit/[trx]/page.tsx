@@ -135,7 +135,7 @@ export default async function DepositDetail({
                   <div className="break-all font-mono text-sm font-semibold text-slate-100">
                     {rail.value.trim() === "" ? (
                       <span className="font-sans font-semibold text-amber-300">
-                        Not configured yet — please contact support.
+                        Not configured yet — please check back shortly.
                       </span>
                     ) : (
                       rail.value
@@ -202,10 +202,7 @@ export default async function DepositDetail({
 
       {deposit.status === "pending" && (
         <Notice tone="info">
-          Payments that are not completed within a reasonable window are cancelled automatically.{" "}
-          <ButtonLink href="/support/new" tone="ghost" className="px-3 py-1 text-xs">
-            Report a problem
-          </ButtonLink>
+          Payments that are not completed within a reasonable window are cancelled automatically.
         </Notice>
       )}
 

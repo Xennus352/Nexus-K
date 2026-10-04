@@ -16,7 +16,6 @@ import {
   CreditCard,
   Gauge,
   Gem,
-  Headset,
   IdCard,
   Landmark,
   LogOut,
@@ -58,7 +57,6 @@ const NAV: { group: string; items: NavItem[] }[] = [
     group: "People",
     items: [
       { href: "/admin/users", label: "Players", icon: Users },
-      { href: "/admin/tickets", label: "Tickets", icon: Headset },
       { href: "/admin/kyc", label: "Verification", icon: IdCard },
       { href: "/admin/admins", label: "Staff", icon: Activity },
     ],

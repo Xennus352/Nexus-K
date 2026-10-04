@@ -5,7 +5,7 @@ import { walletOf } from "@/lib/wallet";
 import { fmt, fmtCoins } from "@/lib/money";
 import { setting } from "@/lib/settings";
 import { claimDailyBonus, saveProfile } from "@/server/actions";
-import { submitKyc } from "@/server/ticket-actions";
+import { submitKyc } from "@/server/kyc-actions";
 import CopyButton from "@/components/CopyButton";
 import {
   Button,

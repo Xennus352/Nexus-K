@@ -82,7 +82,7 @@ export default function WithdrawForm({
   }
 
   if (methods.length === 0) {
-    return <Notice tone="info">No payout method is available yet. Please contact support.</Notice>;
+    return <Notice tone="info">No payout method is available yet. Please check back shortly.</Notice>;
   }
 
   /**

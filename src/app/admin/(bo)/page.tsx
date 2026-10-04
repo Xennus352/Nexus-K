@@ -31,7 +31,6 @@ export default async function AdminDashboard({
     wdlPending,
     depSettled,
     wdlSettled,
-    ticketOpen,
     kycPending,
     netToday,
     recentDeposits,
@@ -50,7 +49,6 @@ export default async function AdminDashboard({
     // not "how many deposits were processed".
     prisma.deposit.count({ where: { paidAt: { gte: since } } }),
     prisma.withdrawal.count({ where: { paidAt: { gte: since } } }),
-    prisma.supportTicket.count({ where: { status: { in: ["open", "answered"] } } }),
     prisma.kycSubmission.count({ where: { status: "pending" } }),
     // Summed in JS: these are separate collections and Prisma has no
     // cross-collection aggregate.
@@ -84,7 +82,6 @@ export default async function AdminDashboard({
   const queue = [
     { label: "Pending deposits", count: depPending, href: "/admin/deposits?status=pending", tone: "warn" as const },
     { label: "Pending withdrawals", count: wdlPending, href: "/admin/withdrawals?status=pending", tone: "warn" as const },
-    { label: "Open tickets", count: ticketOpen, href: "/admin/tickets", tone: "warn" as const },
     { label: "KYC to review", count: kycPending, href: "/admin/kyc", tone: "warn" as const },
     { label: "Suspended players", count: blocked, href: "/admin/users?status=blocked", tone: "bad" as const },
   ];

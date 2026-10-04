@@ -1,4 +1,4 @@
-// Single player: profile, money history, tickets and the operator tools
+// Single player: profile, money history, verification and the operator tools
 // (suspend, manual balance adjustment).
 
 import { notFound } from "next/navigation";
@@ -55,7 +55,7 @@ export default async function AdminUserDetail({
   });
   if (!user) notFound();
 
-  const [deposits, withdrawals, transactions, tickets, bonusClaims, currency] = await Promise.all([
+  const [deposits, withdrawals, transactions, bonusClaims, currency] = await Promise.all([
     prisma.deposit.findMany({ where: { userId: id }, orderBy: { createdAt: "desc" }, take: 20 }),
     prisma.withdrawal.findMany({
       where: { userId: id },
@@ -64,7 +64,6 @@ export default async function AdminUserDetail({
       include: { method: { select: { name: true } } },
     }),
     prisma.transaction.findMany({ where: { userId: id }, orderBy: { createdAt: "desc" }, take: 30 }),
-    prisma.supportTicket.findMany({ where: { userId: id }, orderBy: { createdAt: "desc" }, take: 10 }),
     prisma.bonusClaim.findMany({ where: { userId: id }, orderBy: { claimedAt: "desc" }, take: 10 }),
     setting("site.currency"),
   ]);
@@ -286,27 +285,6 @@ export default async function AdminUserDetail({
       </Panel>
 
       <div className="grid gap-6 xl:grid-cols-2">
-        <Panel title="TICKETS" bodyClass="p-0 sm:p-0">
-          {tickets.length === 0 ? (
-            <div className="p-5">
-              <Empty>No tickets raised.</Empty>
-            </div>
-          ) : (
-            <Table head={["Ticket", "Subject", "Status", "Last reply"]}>
-              {tickets.map((t) => (
-                <tr key={t.id} className="hover:bg-white/5">
-                  <td className="px-4 py-2.5 font-mono text-xs text-sky-300">{t.ticket}</td>
-                  <td className="max-w-[220px] truncate px-4 py-2.5 text-xs text-slate-300">{t.subject}</td>
-                  <td className="px-4 py-2.5">
-                    <StatusBadge status={t.status} />
-                  </td>
-                  <td className="px-4 py-2.5 text-xs text-slate-500">{formatDate(t.lastReply)}</td>
-                </tr>
-              ))}
-            </Table>
-          )}
-        </Panel>
-
         <Panel title="BONUS CLAIMS" bodyClass="p-0 sm:p-0">
           {bonusClaims.length === 0 ? (
             <div className="p-5">

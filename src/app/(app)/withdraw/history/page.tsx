@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
@@ -79,7 +78,6 @@ export default async function WithdrawHistory() {
       </Panel>
 
       <p className="text-xs text-slate-500">
-        Questions about a payout? <Link href="/support" className="text-sky-400 hover:underline">Open a ticket</Link>.
       </p>
     </div>
   );

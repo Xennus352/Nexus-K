@@ -19,7 +19,7 @@ export default async function DepositPage() {
     return (
       <div className="space-y-6">
         <PageTitle title="Deposit" />
-        <Notice>This account has been suspended. Contact support for help.</Notice>
+        <Notice>This account has been suspended, so deposits are unavailable.</Notice>
       </div>
     );
   }
