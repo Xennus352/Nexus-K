@@ -20,7 +20,7 @@ import { SETTING_DEFS } from "@/lib/settings";
  */
 const LOGOS: Record<string, string> = {
   KPay: "/gfx/payments/kpay.svg",
-  Wave: "/gfx/payments/wave.svg",
+  Wave: "/gfx/gateways/flutterwave.webp",
   StripeV3: "/gfx/gateways/stripe-checkout.webp",
   PaypalSdk: "/gfx/gateways/paypal-express.webp",
   NowPaymentsCheckout: "/gfx/gateways/now-payments-checkout.webp",

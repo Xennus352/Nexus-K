@@ -7,6 +7,8 @@ import type { Notice } from "@/server/notices";
 
 /** How often to re-read while the panel is open and the tab is visible. */
 const POLL_MS = 30_000;
+/** Maximum notifications to show in the bell dropdown. */
+const MAX_NOTICES = 3;
 
 const seenKey = (uid: number) => `nk_seen_${uid}`;
 
@@ -104,6 +106,8 @@ export default function NotificationBell({
       /* private mode: the badge simply keeps counting */
     }
     setSeen(now);
+    // Also mark individual notices as read by setting their timestamp
+    setNotices((prev) => prev.map((n) => ({ ...n, at: new Date(now).toISOString() })));
   }
 
   return (
@@ -159,7 +163,7 @@ export default function NotificationBell({
                 Nothing yet. Deposit or withdraw activity shows up here.
               </p>
             ) : (
-              notices.map((n) => {
+              notices.slice(0, MAX_NOTICES).map((n) => {
                 const isUnread = Date.parse(n.at) > seen;
                 return (
                   <Link

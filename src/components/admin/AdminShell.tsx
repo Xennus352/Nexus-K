@@ -63,7 +63,7 @@ export default function AdminShell({
 
   return (
     <div className="flex min-h-screen bg-[#16224d] text-white">
-      <aside className="hidden w-64 shrink-0 flex-col border-r border-white/5 bg-[#1b2a5e] lg:flex">
+      <aside className="hidden w-64 shrink-0 flex-col border-r border-white/5 bg-[#1b2a5e] lg:flex sticky top-0 h-screen self-start">
         <div className="flex items-center gap-2 border-b border-white/5 px-5 py-4">
           <Gem className="h-6 w-6 text-sky-400" />
           <div>

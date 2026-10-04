@@ -5,6 +5,9 @@ import { useState } from "react";
 import { BellOff, RotateCw } from "lucide-react";
 import type { Notice } from "@/server/notices";
 
+/** Maximum notifications to show in the account activity list. */
+const MAX_NOTICES = 3;
+
 /**
  * The same feed the topbar bell shows, rendered inline.
  *
@@ -70,7 +73,7 @@ export default function NotificationList({ initial }: { initial: Notice[] }) {
         </button>
       </div>
       <ul>
-        {notices.map((n) => (
+        {notices.slice(0, MAX_NOTICES).map((n) => (
           <li key={n.id} className="border-b border-white/5 last:border-0">
             <Link
               href={n.href}
