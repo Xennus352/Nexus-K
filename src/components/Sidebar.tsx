@@ -2,15 +2,26 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Gamepad2, Crown, Gift, Wallet, Headset, Gem } from "lucide-react";
+import {
+  LayoutDashboard,
+  Gamepad2,
+  Crown,
+  BanknoteArrowDown,
+  BanknoteArrowUp,
+  Wallet,
+  Headset,
+  Gem,
+} from "lucide-react";
 
+// `match` is what marks the entry active: "/" only on the exact path, deeper
+// routes on any sub-path (so /deposit/[trx] keeps "Deposit" lit).
 const items = [
-  { href: "/", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/lobby", label: "Casino", icon: Gamepad2, hot: true },
-  { href: "#", label: "VIP Club", icon: Crown },
-  { href: "#", label: "Promotions", icon: Gift },
-  { href: "#", label: "Wallet", icon: Wallet },
-  { href: "#", label: "Support", icon: Headset },
+  { href: "/", label: "Dashboard", icon: LayoutDashboard, match: "exact" },
+  { href: "/lobby", label: "Casino", icon: Gamepad2, hot: true, match: "prefix" },
+  { href: "/deposit", label: "Deposit", icon: BanknoteArrowDown, match: "prefix" },
+  { href: "/withdraw", label: "Withdraw", icon: BanknoteArrowUp, match: "prefix" },
+  { href: "/wallet", label: "Wallet", icon: Wallet, match: "prefix" },
+  { href: "/support", label: "Support", icon: Headset, match: "prefix" },
 ];
 
 export default function Sidebar() {
@@ -27,8 +38,8 @@ export default function Sidebar() {
         </div>
       </div>
       <nav className="flex flex-col gap-1">
-        {items.map(({ href, label, icon: Icon, hot }) => {
-          const active = path === href;
+        {items.map(({ href, label, icon: Icon, hot, match }) => {
+          const active = match === "exact" ? path === href : path.startsWith(href);
           return (
             <Link
               key={label}
@@ -52,6 +63,12 @@ export default function Sidebar() {
           <Crown className="h-4 w-4" /> <span className="text-sm font-bold">VIP DIAMOND</span>
         </div>
         <p className="mt-1 text-xs text-amber-100/60">Exclusive rewards await.</p>
+        <Link
+          href="/wallet"
+          className="mt-3 block rounded-xl bg-gradient-to-r from-amber-500 to-yellow-400 px-4 py-2 text-center text-sm font-bold text-black transition hover:brightness-110"
+        >
+          Claim daily bonus
+        </Link>
       </div>
     </aside>
   );

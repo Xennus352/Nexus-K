@@ -52,3 +52,8 @@ engine/
 # public/gfx holds the optimized WebP derivatives the app loads.
 # regenerate with: ./scripts/optimize-assets.sh
 /public/assets/
+
+# source Laravel casino dump (168 MB) — kept locally, not committed.
+# public/gfx/{brand,gateways,payments} + public/sfx hold the derivatives.
+# regenerate with: ./scripts/optimize-upload-code.sh
+/public/Upload_Code/

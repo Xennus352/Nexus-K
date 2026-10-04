@@ -350,8 +350,7 @@ export type ButtonSet = {
 /** Deterministic plate art: a game keeps the same button look, games differ. */
 export function buttonsFor(alias: string): ButtonSet {
   const h = hash(alias);
-  const wide = <K extends keyof ButtonSet>(salt: number) =>
-    BTN_WIDE[(h + salt) % BTN_WIDE.length];
+  const wide = (salt: number) => BTN_WIDE[(h + salt) % BTN_WIDE.length];
   const round = (salt: number) => BTN_ROUND[(h + salt) % BTN_ROUND.length];
   return {
     spin: wide(0),

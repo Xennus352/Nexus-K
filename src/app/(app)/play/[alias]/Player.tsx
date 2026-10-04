@@ -67,31 +67,75 @@ async function enginePost(path: string, body: unknown): Promise<EngineReply | nu
   return (await res.json().catch(() => null)) as EngineReply | null;
 }
 
+/**
+ * Sound effects, backed by the recordings that shipped with the original app
+ * (copied to public/sfx by scripts/optimize-upload-code.sh).
+ *
+ * One pooled <audio> element per clip, restarted on every play. Creating a node
+ * per event instead would open a new decoder each time — reels stop several
+ * times a second — and leak on mobile Safari.
+ */
+type SoundName = "spin" | "reel" | "tick" | "click" | "win" | "lose" | "coin";
+
+/** Clips that came out of the dump as mp3; the rest are wav. */
+const CLICK_SFX = new Set<SoundName>(["spin", "tick", "click", "coin"]);
+
 class SoundFX {
-  ctx: AudioContext | null = null;
-  init() {
-    if (!this.ctx) this.ctx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
+  /** One element per clip name, restarted on each play. */
+  private pool = new Map<string, HTMLAudioElement>();
+
+  constructor() {
+    if (typeof window === "undefined") return;
+    // Unlock on the first gesture so autoplay policies do not block the spin.
+    const unlock = () => this.play("spin", 0.2);
+    window.addEventListener("pointerdown", unlock, { once: true });
+    window.addEventListener("keydown", unlock, { once: true });
   }
-  blip(freq: number, dur: number, vol = 0.2, type: OscillatorType = "sine") {
-    this.init();
-    const osc = this.ctx!.createOscillator();
-    const gain = this.ctx!.createGain();
-    osc.type = type;
-    osc.frequency.setValueAtTime(freq, this.ctx!.currentTime);
-    osc.frequency.exponentialRampToValueAtTime(Math.max(40, freq / 2), this.ctx!.currentTime + dur);
-    gain.gain.setValueAtTime(vol, this.ctx!.currentTime);
-    gain.gain.linearRampToValueAtTime(0.01, this.ctx!.currentTime + dur);
-    osc.connect(gain); gain.connect(this.ctx!.destination);
-    osc.start(); osc.stop(this.ctx!.currentTime + dur);
+
+  private clip(name: SoundName): HTMLAudioElement {
+    let el = this.pool.get(name);
+    if (!el) {
+      // The dumped app shipped .mp3 for the reel/tick/click set and .wav for the
+      // longer win/lose stings.
+      const ext = CLICK_SFX.has(name) ? "mp3" : "wav";
+      el = new Audio(`/sfx/${name}.${ext}`);
+      el.preload = "auto";
+      this.pool.set(name, el);
+    }
+    return el;
   }
-  spinTick() { this.blip(120, 0.08, 0.12, "triangle"); }
-  reelStop() { this.blip(220, 0.1, 0.25); }
+
+  play(name: SoundName, volume = 0.5) {
+    if (typeof window === "undefined") return;
+    try {
+      const el = this.clip(name);
+      el.currentTime = 0;
+      el.volume = volume;
+      // A blocked or missing clip must never interrupt a spin.
+      void el.play().catch(() => {});
+    } catch {
+      /* audio is decorative */
+    }
+  }
+
+  /* Aliases for readability at the call sites. */
+  reelStop() {
+    this.play("reel");
+  }
+  spinTick() {
+    this.play("tick", 0.25);
+  }
   win() {
-    const now = this.ctx?.currentTime ?? 0;
-    [261.63, 329.63, 392.0, 523.25, 659.25].forEach((f, i) => {
-      setTimeout(() => this.blip(f, 0.3, 0.2, "triangle"), i * 80);
-    });
-    void now;
+    this.play("win");
+  }
+  lose() {
+    this.play("lose");
+  }
+  click() {
+    this.play("click", 0.3);
+  }
+  coin() {
+    this.play("coin");
   }
 }
 
@@ -378,7 +422,10 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
     setWallet(j.wallet);
     setLastWin(j.gain ?? 0);
     setNotice(won ? `🎉 Won ×${mult}! ${risk} → ${j.gain}` : `💔 Lost the gamble — ${risk} staked`);
-    if (soundOn) audio.blip(won ? 880 : 160, 0.3, 0.22, won ? "triangle" : "sawtooth");
+    if (soundOn) {
+      if (won) audio.win();
+      else audio.lose();
+    }
     setBusy(false);
   }
 

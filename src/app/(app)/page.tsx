@@ -1,19 +1,20 @@
+import Link from "next/link";
 import { getSession } from "@/lib/session";
-import { claimBonus } from "@/server/actions";
+import { claimDailyBonus } from "@/server/actions";
 import { prisma } from "@/lib/prisma";
+import { settingNumber } from "@/lib/settings";
 import Gallery from "@/components/Gallery";
 import AuthForm from "@/components/AuthForm";
 import FloatingChips from "@/components/FloatingChips";
-import Link from "next/link";
 
 const ENGINE = process.env.SLOTOPOL_URL ?? "http://localhost:8080";
 
 export default async function Home({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; ref?: string }>;
 }) {
-  const { error } = await searchParams;
+  const { error, ref } = await searchParams;
   const s = await getSession();
 
   if (!s) {
@@ -23,20 +24,34 @@ export default async function Home({
           NEXUS-K
         </h1>
         <p className="text-slate-400 tracking-[0.4em] text-xs">BLUE DIAMOND CASINO</p>
-        <AuthForm error={error} />
+        <AuthForm error={error} refCode={ref} />
       </main>
     );
   }
 
   const user = await prisma.user.findUnique({ where: { email: s.email } });
   const userId = user?.id;
-  const recent = userId
-    ? await prisma.spin.findMany({
-        where: { userId },
-        orderBy: { createdAt: "desc" },
-        take: 5,
-      })
-    : [];
+  const [recent, claimedToday, dailyBonus] = await Promise.all([
+    userId
+      ? prisma.spin.findMany({
+          where: { userId },
+          orderBy: { createdAt: "desc" },
+          take: 5,
+        })
+      : Promise.resolve([]),
+    // Same period key `claimDailyBonus` writes, so the button disappears the
+    // moment the claim succeeds.
+    userId
+      ? prisma.bonusClaim.findFirst({
+          where: {
+            userId,
+            kind: "daily",
+            claimKey: { endsWith: new Date().toISOString().slice(0, 10) },
+          },
+        })
+      : Promise.resolve(null),
+    settingNumber("bonus.daily", 250),
+  ]);
 
   let featured: { prov: string; name: string; sx: number; sy: number; rtp: number[] }[] = [];
   try {
@@ -86,12 +101,30 @@ export default async function Home({
         <section className="rounded-2xl border border-amber-500/20 bg-[#35478a] p-5">
           <h3 className="mb-4 font-bold text-slate-200">DAILY BONUS</h3>
           <div className="text-5xl">🎁</div>
-          <p className="mt-2 text-sm text-slate-400">Claim your daily 250 coin bonus.</p>
-          <form action={claimBonus}>
-            <button className="mt-4 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-400 px-6 py-2 font-bold text-black transition hover:brightness-110">
-              CLAIM NOW
-            </button>
-          </form>
+          {claimedToday ? (
+            <>
+              <p className="mt-2 text-sm text-emerald-300">
+                Today&rsquo;s {dailyBonus.toLocaleString()} coin bonus is in your wallet.
+              </p>
+              <Link
+                href="/wallet"
+                className="mt-4 inline-block rounded-xl border border-amber-500/40 px-6 py-2 font-bold text-amber-300 transition hover:bg-amber-500/10"
+              >
+                VIEW WALLET
+              </Link>
+            </>
+          ) : (
+            <>
+              <p className="mt-2 text-sm text-slate-400">
+                Claim your daily {dailyBonus.toLocaleString()} coin bonus.
+              </p>
+              <form action={claimDailyBonus}>
+                <button className="mt-4 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-400 px-6 py-2 font-bold text-black transition hover:brightness-110">
+                  CLAIM NOW
+                </button>
+              </form>
+            </>
+          )}
         </section>
 
         {/* hot picks */}
@@ -102,6 +135,26 @@ export default async function Home({
             <li>⚡ Real engine, provably fair math</li>
             <li>🔒 Secure JWT session</li>
           </ul>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Link
+              href="/deposit"
+              className="rounded-xl border border-sky-500/30 bg-sky-950/40 px-4 py-2 text-xs font-bold text-sky-300 transition hover:bg-sky-900/50"
+            >
+              DEPOSIT
+            </Link>
+            <Link
+              href="/withdraw"
+              className="rounded-xl border border-sky-500/30 bg-sky-950/40 px-4 py-2 text-xs font-bold text-sky-300 transition hover:bg-sky-900/50"
+            >
+              WITHDRAW
+            </Link>
+            <Link
+              href="/support"
+              className="rounded-xl border border-sky-500/30 bg-sky-950/40 px-4 py-2 text-xs font-bold text-sky-300 transition hover:bg-sky-900/50"
+            >
+              SUPPORT
+            </Link>
+          </div>
         </section>
       </div>
 

@@ -1,6 +1,7 @@
 import { login, signup } from "@/server/actions";
 
-export default function AuthForm({ error }: { error?: string }) {
+// `ref` is reserved by React for its own refs, so the prefill is called `refCode`.
+export default function AuthForm({ error, refCode }: { error?: string; refCode?: string }) {
   return (
     <div className="w-full max-w-sm rounded-3xl border border-sky-500/20 bg-[#35478a]/85 p-8 shadow-[0_0_60px_rgba(56,189,248,0.15)] backdrop-blur">
       <h2 className="mb-6 text-center text-2xl font-black text-sky-300">Enter the Vault</h2>
@@ -8,6 +9,18 @@ export default function AuthForm({ error }: { error?: string }) {
       <form action={signup} className="mb-6 flex flex-col gap-3">
         <input name="email" type="email" placeholder="Email" required className="rounded-xl border border-white/10 bg-[#3b4f96] px-4 py-2.5 outline-none focus:border-sky-500" />
         <input name="password" type="password" placeholder="Password (min 6)" required className="rounded-xl border border-white/10 bg-[#3b4f96] px-4 py-2.5 outline-none focus:border-sky-500" />
+        {/* Prefilled from `?ref=` so a shared link works, but editable so a code
+            can still be typed when there is no link. `signup` ignores an unknown
+            or blank code, so this can never block an account. */}
+        <input
+          name="ref"
+          defaultValue={refCode ?? ""}
+          placeholder="Referral code (optional)"
+          maxLength={12}
+          autoComplete="off"
+          spellCheck={false}
+          className="rounded-xl border border-white/10 bg-[#3b4f96] px-4 py-2.5 uppercase outline-none focus:border-sky-500"
+        />
         <button className="rounded-xl bg-gradient-to-r from-blue-600 to-sky-500 py-2.5 font-bold shadow-[0_0_20px_rgba(56,189,248,0.4)] transition hover:brightness-110">Sign Up</button>
       </form>
       <form action={login} className="flex flex-col gap-3">
