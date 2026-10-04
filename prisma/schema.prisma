@@ -150,11 +150,24 @@ model Deposit {
   payUrl      String    @default("")
   /** JSON driver payload — redirect urls, crypto addresses, pay addresses… */
   data        String    @default("{}")
+  /**
+   * Player's transfer screenshot. Holds the *stored* filename only, relative to
+   * `var/uploads` — never a path the browser supplied, and never a URL: the
+   * image is served by an admin-gated route rather than from `public/`, so a slip
+   * showing someone's bank balance cannot be fetched without a back-office
+   * session. Empty until the player attaches one.
+   */
+  slipPath    String    @default("")
+  /** Original client filename, kept only so an operator recognises the upload. */
+  slipName    String    @default("")
+  /** Whitelisted image content type of the stored file. */
+  slipType    String    @default("")
   adminNote   String    @default("")
   ip          String    @default("")
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
   paidAt      DateTime?
+  slipAt      DateTime?
 
   @@index([userId, createdAt])
   @@index([status, createdAt])

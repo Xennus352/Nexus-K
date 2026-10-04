@@ -57,3 +57,6 @@ engine/
 # public/gfx/{brand,gateways,payments} + public/sfx hold the derivatives.
 # regenerate with: ./scripts/optimize-upload-code.sh
 /public/Upload_Code/
+
+# Player-uploaded files (deposit slips) — never committed.
+/var/
