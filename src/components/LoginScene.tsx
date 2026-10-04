@@ -4,9 +4,9 @@
 //
 // The sign-in page is the one screen every visitor sees, so it carries the game
 // identity on its own: the Zeus pack's Olympus plate drifting behind, its symbols
-// floating up past the card like a slow-motion reel, and the gptEgypt emblems
-// turning in the corners. Everything is CSS-positioned and driven by one GSAP
-// context that is torn down on unmount, and the whole thing collapses to a
+// scattered across the whole viewport and wandering in place, and the gptEgypt
+// emblems turning in the corners. Everything is CSS-positioned and driven by one
+// GSAP context that is torn down on unmount, and the whole thing collapses to a
 // static frame under `prefers-reduced-motion`.
 //
 // Positions are derived from a seeded hash rather than Math.random(): this is a
@@ -26,10 +26,18 @@ const EGYPT = "/gfx/egypt";
 /** The wide painted scene from the Zeus pack, used as the plate. */
 const PLATE = `${ZEUS}/bg/olympus_sunrise.webp`;
 
-/** Slot symbols that drift up behind the card. */
+/**
+ * Slot symbols scattered across the scene.
+ *
+ * Sixteen, so the viewport is genuinely populated rather than dotted — an earlier
+ * pass used eight, all anchored to the bottom edge, which read as one clump
+ * drifting past the card instead of a cabinet full of symbols.
+ */
 const FLOATERS = [
   "zeus_portrait", "trident", "pegasus", "gold_coin",
   "jackpot_crown", "sun_medallion", "storm_orb", "greek_helmet",
+  "blue_gem", "red_gem", "purple_gem", "golden_chalice",
+  "greek_vase", "golden_lyre", "laurel_wreath", "lightning_scatter",
 ].map((n) => `${ZEUS}/sym/${n}.webp`);
 
 /** Corner ornaments from the gptEgypt drop. */
@@ -59,13 +67,94 @@ const COPY = {
 
 export type LoginSceneVariant = keyof typeof COPY;
 
-/** Small deterministic PRNG so a symbol keeps the same path on every render. */
+/**
+ * Small deterministic PRNG so a symbol keeps the same path on every render.
+ *
+ * The generator is warmed up before use. Consecutive outputs of a bare LCG are
+ * strongly correlated, and because the seeds here differ by one character, the
+ * first draws were nearly identical — which showed up as several symbols sharing a
+ * size and a position. Skipping the first eight values decorrelates them.
+ */
 function seeded(seed: string): () => number {
   let s = 2166136261;
   for (const c of seed) s = (s ^ c.charCodeAt(0)) >>> 0;
-  return () => {
+  const next = () => {
     s = (s * 1664525 + 1013904223) >>> 0;
     return s / 4294967296;
+  };
+  for (let i = 0; i < 8; i++) next();
+  return next;
+}
+
+/**
+ * Evenly spread offsets for index `i`, in [0, 1).
+ *
+ * Low-discrepancy rather than random, on purpose. Jittering a grid with random
+ * values does not reliably spread anything: the distribution clumps, and at this
+ * count it reliably put two symbols within a percentage point of each other while
+ * leaving a cell empty.
+ *
+ * The two strides are not interchangeable, because a row-major grid does not step
+ * the index evenly in both directions. Along a row the index advances by 1, so a
+ * plain golden stride is fine. Down a column it advances by 4, and the golden
+ * conjugate collapses under that: 4 × 0.7548 mod 1 = 0.0195, so all four symbols
+ * in a column landed on almost the same offset and the whole cluster sat in the
+ * left of its cell. 0.8125 is chosen so that 4 × it mod 1 = 0.25 — the four rows
+ * of a column are then exactly a quarter apart, and each column gets a different
+ * rotation of that set, so the grid does not read as a grid.
+ */
+const JITTER_X = 0.8125;
+const JITTER_Y = 0.5698402909980532; // 1/φ², for the ±1 direction
+
+function spread(i: number, stride: number, phase = 0): number {
+  return (i * stride + phase) % 1;
+}
+
+/**
+ * Placement for one floater, as percentages of the viewport.
+ *
+ * One floater per cell of a 4×4 grid, offset within its cell by the low-discrepancy
+ * sequence above. The cell guarantees an even spread — no two symbols can end up in
+ * the same neighbourhood, and no quadrant is left bare — while the offset keeps it
+ * from looking like a tile pattern.
+ */
+const GRID_COLS = 4;
+const GRID_ROWS = 4;
+
+type Scatter = {
+  /** Centre of the symbol's cell, as a percentage from the left/top. */
+  left: number;
+  top: number;
+  size: number;
+  opacity: number;
+  /** Seed for the motion tween, kept separate from the placement seed. */
+  seed: string;
+};
+
+function scatter(i: number, src: string): Scatter {
+  const col = i % GRID_COLS;
+  const row = Math.floor(i / GRID_COLS);
+  const cw = 100 / GRID_COLS;
+  const ch = 100 / GRID_ROWS;
+  // The largest deviation `spread` can produce is half the interval, so an amplitude
+  // of 3/4 of a half-cell guarantees a symbol stays inside its own cell while still
+  // travelling far enough that the grid is not visible.
+  const ampX = (cw / 2) * 0.75;
+  const ampY = (ch / 2) * 0.75;
+  const offX = (spread(i, JITTER_X) - 0.5) * 2 * ampX;
+  const offY = (spread(i, JITTER_Y, 0.5) - 0.5) * 2 * ampY;
+
+  // Size and opacity come from the PRNG rather than the sequence, so they can vary
+  // freely without affecting how evenly the symbols are placed.
+  const rnd = seeded(`style:${src}:${i}`);
+
+  return {
+    left: col * cw + cw / 2 + offX,
+    top: row * ch + ch / 2 + offY,
+    size: 42 + rnd() * 82,
+    // Varied so the scatter has depth: a few read as near, most as far off.
+    opacity: 0.16 + rnd() * 0.34,
+    seed: `drift:${src}:${i}`,
   };
 }
 
@@ -97,22 +186,29 @@ export default function LoginScene({
         yoyo: true,
       });
 
-      // Symbols drift upward past the card on long, offset cycles.
+      // Symbols wander about the screen they were scattered over. Each gets its own
+      // amplitude, period and starting phase, so they never sync up into a visible
+      // pattern — and because the motion is a yoyo around a fixed anchor rather than
+      // a one-way rise, a floater stays in its own region instead of all of them
+      // sweeping off the top together and leaving the screen empty.
       gsap.utils.toArray<HTMLElement>(".nk-floater").forEach((node, i) => {
-        const rnd = seeded(node.dataset.seed ?? String(i));
-        gsap.fromTo(
-          node,
-          { y: 40 + rnd() * 90, opacity: 0, rotate: rnd() * 40 - 20 },
-          {
-            y: -(120 + rnd() * 220),
-            opacity: 0.5,
-            rotate: rnd() * 80 - 40,
-            duration: 13 + rnd() * 12,
-            ease: "none",
-            repeat: -1,
-            delay: -rnd() * 18,
-          }
-        );
+        const rnd = seeded(node.dataset.seed ?? `drift:${i}`);
+        // Centring is applied, not animated. Inside the yoyo below these would be
+        // tweened from 0, so every symbol would visibly slide in from its own
+        // top-left corner over the first half of its cycle.
+        gsap.set(node, { xPercent: -50, yPercent: -50 });
+        gsap.to(node, {
+          x: (rnd() - 0.5) * 150,
+          y: (rnd() - 0.5) * 170,
+          rotation: (rnd() - 0.5) * 70,
+          duration: 15 + rnd() * 19,
+          ease: "sine.inOut",
+          repeat: -1,
+          yoyo: true,
+          // A negative delay starts the tween part-way through its cycle, which is
+          // what stops all sixteen from beginning at the same instant.
+          delay: -rnd() * 24,
+        });
       });
 
       // Emblems turn slowly, as if hung and swinging in a draught.
@@ -130,6 +226,14 @@ export default function LoginScene({
       gsap
         .timeline({ defaults: { ease: "power3.out" } })
         .from(".nk-plate", { opacity: 0, scale: 1.3, duration: 1.4, ease: "power2.out" })
+        // Symbols materialise with the plate rather than arriving with the page.
+        // Opacity only: the drift tweens above already own each symbol's transform,
+        // and animating the same property from two timelines would fight.
+        .from(
+          ".nk-floater",
+          { opacity: 0, duration: 1.1, stagger: { each: 0.05, from: "random" }, ease: "power2.out" },
+          "-=1.1"
+        )
         .from(
           ".nk-letter",
           { yPercent: 120, opacity: 0, rotateX: -80, duration: 0.7, stagger: 0.045 },
@@ -174,26 +278,33 @@ export default function LoginScene({
         }}
       />
 
-      {/* drifting symbols */}
+      {/* scattered symbols */}
       <div className="pointer-events-none absolute inset-0 -z-10" aria-hidden>
         {FLOATERS.map((src, i) => {
-          const rnd = seeded(src + i);
-          const left = 4 + rnd() * 92;
-          const size = 46 + rnd() * 88;
+          const s = scatter(i, src);
           return (
             // eslint-disable-next-line @next/next/no-img-element
             <img
               key={src}
               src={src}
               alt=""
-              data-seed={src}
-              className="nk-floater absolute select-none will-change-transform"
+              data-seed={s.seed}
+              className={`nk-floater absolute select-none will-change-transform ${
+                // Sixteen symbols sized for a desktop are far too dense on a phone:
+                // at 375px wide each cell is under 100px and they pile onto the
+                // card. Below `md` only the outer columns survive — eight symbols
+                // that still reach both edges and every row, but leave the middle
+                // clear for the form.
+                i % 4 === 1 || i % 4 === 2 ? "max-md:hidden" : ""
+              }`}
               style={{
-                left: `${left}%`,
-                bottom: "-12%",
-                width: size,
-                height: size,
-                opacity: 0,
+                left: `${s.left}%`,
+                top: `${s.top}%`,
+                width: s.size,
+                height: s.size,
+                // The resting opacity is set inline rather than faded in by GSAP, so
+                // the scatter is still there — static — under reduced motion.
+                opacity: s.opacity,
                 filter: "drop-shadow(0 8px 26px rgba(0,0,0,0.65))",
               }}
             />
