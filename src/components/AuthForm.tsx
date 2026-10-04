@@ -70,14 +70,14 @@ export default function AuthForm({ error }: { error?: string }) {
           </button>
         </form>
 
+        {/* Still worth telling a prospective player how an account comes to exist,
+            but the pointer to /portal is gone: it repeated the "Staff portal" link the
+            scene used to carry, and two pointers to the staff login on the player
+            sign-in page is one too many. Staff go straight to /portal. */}
         <p className="mt-6 border-t border-white/10 pt-5 text-center text-xs leading-relaxed text-slate-400/85">
           No account yet?{" "}
           <span className="font-semibold text-slate-300">Ask an operator to create one</span>{" "}
-          — registration is closed. Staff sign in at{" "}
-          <a href="/portal" className="font-semibold text-sky-300 underline-offset-4 hover:underline">
-            /portal
-          </a>
-          .
+          — registration is closed.
         </p>
       </div>
     </div>

@@ -45,17 +45,29 @@ const ORNAMENTS = ["goldscarab", "udjat", "khopesh"].map((n) => `${EGYPT}/${n}.w
 
 /**
  * The only thing that differs between the two sign-in screens: which audience the
- * scene is introducing, and therefore where it sends anyone who is in the wrong
- * place. A player-facing scene that ended in a "Staff portal" link (and a staff
- * scene that ended in a link to itself) is worse than no link at all.
+ * scene is introducing, and therefore what it says underneath.
+ *
+ * `note` and `crossLink` are optional, and the player variant now omits both. The
+ * player screen was carrying three separate pointers away from the thing it is
+ * actually for — "Members sign in below", a "Staff portal" link, and the same link
+ * again in the form footer — and all three read as noise on a page whose only job is
+ * to get someone into the lobby. The staff screen keeps its cross-link, because a
+ * back-office operator who lands on `/portal` by mistake still needs a way out.
  */
-const COPY = {
+type SceneCopy = {
+  eyebrow: string;
+  strapline: string;
+  note?: string;
+  crossLink?: { href: string; label: string };
+};
+
+export type LoginSceneVariant = "player" | "staff";
+
+const COPY: Record<LoginSceneVariant, SceneCopy> = {
   player: {
     eyebrow: "Blue Diamond Casino",
     // Verified against the lobby: 347 games across these 10 providers.
     strapline: "347 slots · 10 providers · provably fair engine",
-    note: "Members sign in below.",
-    crossLink: { href: "/portal", label: "Staff portal" },
   },
   staff: {
     eyebrow: "Staff portal",
@@ -63,9 +75,7 @@ const COPY = {
     note: "Players sign in on the main site.",
     crossLink: { href: "/", label: "Player sign-in" },
   },
-} as const;
-
-export type LoginSceneVariant = keyof typeof COPY;
+};
 
 /**
  * Small deterministic PRNG so a symbol keeps the same path on every render.
@@ -361,16 +371,23 @@ export default function LoginScene({
 
         <div className="nk-panel w-full">{children}</div>
 
-        <footer className="nk-tagline flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-center text-xs text-slate-400/80">
-          <span>{copy.note}</span>
-          <span className="text-slate-600">·</span>
-          <a
-            href={copy.crossLink.href}
-            className="font-semibold uppercase tracking-wider text-sky-300/90 underline-offset-4 transition hover:text-sky-200 hover:underline"
-          >
-            {copy.crossLink.label}
-          </a>
-        </footer>
+        {/* Rendered only when there is something to say. The separator is drawn from
+            the pieces that exist rather than always, so a variant with just a note
+            does not end up with a dangling "·" against nothing. */}
+        {(copy.note || copy.crossLink) && (
+          <footer className="nk-tagline flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-center text-xs text-slate-400/80">
+            {copy.note && <span>{copy.note}</span>}
+            {copy.note && copy.crossLink && <span className="text-slate-600">·</span>}
+            {copy.crossLink && (
+              <a
+                href={copy.crossLink.href}
+                className="font-semibold uppercase tracking-wider text-sky-300/90 underline-offset-4 transition hover:text-sky-200 hover:underline"
+              >
+                {copy.crossLink.label}
+              </a>
+            )}
+          </footer>
+        )}
       </div>
     </div>
   );

@@ -80,7 +80,9 @@ separate: the player cookie `nk` and the admin cookie `nk_admin` are signed inde
 session confers no admin rights, so `/portal` exists so an operator can type a staff password without
 looking like the player login.
 
-`/admin/login` still redirects there, so old bookmarks and runbooks keep working.
+``/admin/login` still redirects there, so old bookmarks and runbooks keep working.
+
+Note that `/` no longer links to `/portal`: the player sign-in screen used to carry three separate pointers away from its own job — a "Members sign in below" note, a "Staff portal" link in the scene footer, and the same link again in the form footer. All three are gone. Staff go straight to `/portal`, which still links back to `/` so an operator in the wrong place can get out.
 
 ## Telegram support
 
