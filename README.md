@@ -19,6 +19,13 @@ Inspired by these open-source projects:
   context drives it all and collapses to a static frame under `prefers-reduced-motion`.
 - Lobby and slot machine with GSAP reels, streamed game data and pooled sound effects.
 - **Wallet**: live balance, deposit/withdraw totals, transaction ledger, referral code, KYC submission.
+- **The sidebar is `sticky top-0 h-screen self-start`.** The main screen scrolls under it while the nav
+  and the account card stay put. `self-start` is load-bearing: a flex aside is stretched to the
+  document's height by default, and an element as tall as the document has nowhere to stick.
+- **The sidebar's account card replaces the old VIP panel**: email, live balance (or the reason it is
+  unavailable — "Balance unavailable" when the engine is down, "Account blocked" when the player is
+  banned), and the referral code with a copy button.
+- **Deposits are KPay and Wave only.** See [Proving a deposit](#proving-a-deposit).
 
 ### The game screen
 
@@ -38,6 +45,13 @@ Inspired by these open-source projects:
   and `CountUp` tweens between values and flashes the direction, honouring `prefers-reduced-motion`.
 - **The background is the game's own art** (`scene.cabinet`, resolved per alias) with a darkening radial
   scrim, rather than flat black.
+- **The route is `/play/[alias]`, outside the `(app)` route group on purpose.** As a member of `(app)`
+  it inherited the shell's sidebar, topbar, mobile nav and `p-4 pb-24 md:p-6` content padding, so the
+  "full-bleed" screen arrived inset inside a padded box with a nav rail down the side — and that padding,
+  plus the cabinet, is what made the page scroll. The wrapper is `flex h-[100dvh] w-full
+  overflow-hidden` with `main` at `flex-1`, measured at 0 px of document overflow on both a desktop and
+  a 390 px phone viewport. `100dvh` rather than `100vh` because the mobile URL bar makes `vh` taller
+  than the visible area, reintroducing exactly the scroll being removed.
 - **Deposit**: per-rail fees, limits and currency lists, a checkout per driver, an instructions page
   for manual rails, and a status endpoint the detail page polls. Manual rails must attach the transfer
   screenshot — see [Proving a deposit](#proving-a-deposit).
@@ -45,7 +59,39 @@ Inspired by these open-source projects:
   address…), fee split, turnover rule, optional KYC gate, reserve-on-request. Every request and every
   deposit proof lands in Telegram — see [Money alerts](#money-alerts).
 - **Bonuses**: daily bonus (once per day), welcome bonus, referral bonuses, deposit bonuses.
-- **Support**: ticket list, new ticket, threaded replies, and an optional Telegram channel.
+- **Notifications**: a bell in the topbar and an inline feed on `/account`, both fed by the player's
+  own deposit and withdrawal rows — see [Notifications](#notifications).
+- **My account** (`/account`): identity, referral code with a copy button, balance, turnover, KYC status,
+  recent activity and the ledger. Read-only, and the one place a player can see their own state
+  without hunting through the wallet.
+
+### The boot screen
+
+`src/components/LoadingScreen.tsx` is the giveaway screen on a cold lobby load: a gold-on-teal
+mystical gradient with drifting clouds and rays, the `GIVEAWAY GIVEAWAY` banner in 3D relief
+(dual-layer shadows, a stroke, a gold→red gradient fill), a `% COMPLETE` counter that visibly climbs
+0→100, a golden metallic progress-bar frame with a fiery glowing fill, and flanking placeholder
+slots for a dragon motif and a seated warrior. `(V1.0.113)` sits at the bottom.
+
+- **Whether to show it at all is decided on the server**, in `/lobby`, from a seven-day cookie
+  (`nk_lobby_boot`, `src/lib/boot-flag.ts`). This is the load-bearing detail. The overlay is part of
+  the server-rendered HTML, so a client-side "has this browser seen it?" check can only *remove*
+  markup that has already painted — measured, that leaves a warm revisit sitting behind a frozen
+  `0% COMPLETE` screen for as long as the JS takes to load, eating clicks over a lobby that was
+  ready the whole time. Asking the server in the page means a warm lobby is simply never wrapped.
+  `sessionStorage` was the first attempt and cannot work: it is invisible to the server, which forces
+  a client-side decision, which is the situation above.
+- **`duration` is milliseconds and always treated as such.** The tween converts on the way in. Passing
+  the prop straight to GSAP's `duration` looks right and is not: a 2400 ms request becomes a
+  forty-minute run, the counter sits at 0 for the whole session, and the overlay never leaves — a
+  loading screen that silently bricks the page behind it.
+- **It always takes itself off the page.** `onLoadComplete` is optional, but an overlay faded to
+  opacity 0 is still a `fixed inset-0` element eating every click, so both exit paths end in `null`.
+- **The run lands on exactly 100** from `onComplete` and `onInterrupt` alike. A tween killed
+  mid-flight — Strict Mode's double effect, a re-render, a backgrounded tab — must not leave a
+  loading screen parked at 62%.
+- One `gsap.context()` scoped to the root, with `gsap.matchMedia()` inside it, so a single
+  `ctx.revert()` in `useLayoutEffect` tears down both the motion and the reduced-motion branch.
 
 ### Creating player accounts
 
@@ -106,32 +152,53 @@ looking like the player login.
 
 Note that `/` no longer links to `/portal`: the player sign-in screen used to carry three separate pointers away from its own job — a "Members sign in below" note, a "Staff portal" link in the scene footer, and the same link again in the form footer. All three are gone. Staff go straight to `/portal`, which still links back to `/` so an operator in the wrong place can get out.
 
-## Telegram support
+## Notifications
 
-Optional. Set `TELEGRAM_BOT_TOKEN` from [@BotFather](https://t.me/BotFather) and the app will:
+The bell in the topbar and the inline feed on `/account` are the same list, built by
+`noticesFor()` in `src/server/notices.ts`.
 
-- show a **"Message us on Telegram"** button on `/support` and on every ticket thread, deep-linking to
-  the bot with the ticket number as the `/start` payload;
-- push new tickets and player replies to the operator's chat.
+- **A deposit that was approved *is* the notification that their deposit was approved.** The rows the
+  player already owns are the feed. A separate notification store would need its own write at every
+  settle and refund site, and the day one of those was missed the player would be told their deposit
+  was pending forever — a bug invisible in testing, because the happy path still works.
+- **Titles quote stored columns, never recomputed ones.** Coins and cash come from the row as it was
+  approved, so a rate setting changing later cannot make an old notification disagree with the
+  transaction it describes.
+- **A rejection shows the operator's note verbatim.** "Why was my deposit rejected" is the question the
+  bell exists to answer, and an empty body would send the player looking for someone to ask.
+- **The list is server-rendered.** `(app)/layout.tsx` reads it into the bell, so the unread badge is
+  correct on the very first paint instead of appearing a beat after the page. `/api/notifications`
+  exists for the refresh the bell does while it is open, and that is all it is for.
+- **Polling only runs while the panel is open**, and pauses while the tab is hidden. A closed bell has
+  nothing to show.
+- **Read state is per-device.** It is a "last seen" timestamp in `localStorage`, not a database column,
+  because it is a preference about a device rather than a fact about the account. Server-side, signing
+  in on a second device would silently mark everything read on the phone.
 
-The bot's `@username` is looked up from the token automatically. The chat that *receives* the
-notifications is adopted once from `/admin/settings` → **Detect from bot**: open a chat with the bot,
-send it anything, press the button. That exists because a token from BotFather does not tell you your
-own chat id, and looking it up by hand is a support trap.
+## Telegram alerts
+
+Optional, and the only thing the bot does. Set `TELEGRAM_BOT_TOKEN` from
+[@BotFather](https://t.me/BotFather) and the app will push a message for every deposit and withdrawal
+that needs an operator.
 
 The token is read from the environment only — never stored in the database, never logged, never sent to
 the browser. Nothing in `src/lib/telegram.ts` throws: Telegram is a convenience channel, so an outage
-degrades to "the button is not rendered", not to a failed ticket submission.
+degrades to "the operator was not told", never to a failed payout.
 
 ### Money alerts
 
-Support tickets are one kind of message; money moving is another. Deposits and withdrawals alert a
-**separate** list, because they want a different pair of eyes: a casino's payout number is not
-something to read in the same channel as player chat.
+Deposits and withdrawals alert a **list** of chats, because they want a different pair of eyes: a
+casino's payout number is not something to read in the same channel as player chat.
 
-- `/admin/settings` → **Money alerts (payment group)** holds the chat ids. Blank falls back to
-  `5458464856,6629148549`, so alerts work before anyone visits the settings page. At most eight ids,
-  digits only.
+- `/admin/settings` → **Send deposit & withdrawal alerts to Telegram** turns alerts off without
+  deleting the list; the chat ids sit next to it. Blank falls back to `5458464856,6629148549`, so
+  alerts work before anyone visits the settings page. At most eight ids, digits only.
+- **"Detect from bot" is additive.** It reads the operator's chat from the bot's pending updates and
+  *appends* it to the list. A button that replaced the list would silently stop alerting the second
+  operator the moment anyone used it. Getting a token from BotFather does not tell you your own chat
+  id, and looking it up by hand is a trap worth removing.
+- **"Send test message" reports the fan-out.** It says how many of the configured chats accepted it,
+  not a bare "sent" that would be true even if every delivery had 403'd.
 - A **withdrawal** alert quotes the reference, the player, the coins, the cash the operator actually has
   to send, the fee, the rail, and every payout field verbatim — including the KPay or Wave number. An
   alert missing the number is worse than no alert, so it is rendered from the stored `account` JSON
@@ -153,7 +220,23 @@ Manual rails are a promise from the player that money moved, so `/api/payments/c
 screenshot for them and a screenshot alone is not enough — it is the only thing linking an amount to a
 bank line.
 
-- **The player must attach the image.** The file picker previews what was chosen, and the submit button
+- **KPay and Wave are the only rails a player is offered.** `PLAYER_RAILS` in `src/lib/gateways.ts`
+  filters `playerGateways()`, and the rest of the catalogue stays in the database and stays editable at
+  `/admin/gateways` — so undoing this is a one-word rename plus a driver change, not a code change.
+  Enforced by a filter rather than by deletion on purpose, which means `pnpm db:e2e:http` asserts it:
+  the suite loads the deposit page and fails if any other rail's id appears in it.
+- **The rails are drawn as two wide logo tiles** with a hand-drawn radio and a lift on hover, using
+  original SVG wordmarks (`public/gfx/payments/kpay.svg`, `wave.svg`) rather than the generic 400×180
+  catalog art, which was a stock bank icon on both. Swapping in a real brand asset is a path change.
+- **The file picker is custom, not a styled `<input type="file">`.** The native input is still there
+  and still `sr-only`, so keyboard focus, the OS dialog and form semantics are unchanged — what the
+  player touches is a button that opens it, and there is no default "Choose File" control on screen.
+- **Object URLs are revoked on every change and on unmount.** The URL is created in the pick handler
+  and owned by the same state as the file, so "which URL is live" is one value replaced and revoked in
+  one step rather than two pieces of state that can disagree. A player who attaches several screenshots
+  would otherwise leak every one of them for the life of the tab, and a 5 MB photo times a few attempts
+  is enough to matter on a phone.
+- **The player must attach the image.** The picker previews what was chosen, and the submit button
   stays disabled until there is one. There is no "submit without a screenshot" path for a manual rail.
 - **The receiving number is a setting, not a seed value.** The casino's real KPay number is an operator
   decision, and a placeholder in a rail is worse than an empty one: a player would copy the placeholder
@@ -216,8 +299,27 @@ under `public/gfx/`:
 ## Back office (`/admin`)
 
 Dashboard, reports, deposits, withdrawals, ledger, payment rails, payout methods, settings, players,
-tickets, verification and staff accounts. Balance adjustments and player creation are superadmin-only,
+verification and staff accounts. Balance adjustments and player creation are superadmin-only,
 and the last active superadmin cannot be demoted or deactivated.
+
+### Tabs and paging
+
+Every list in the back office is tabbed and pages **20 rows at a time**.
+
+- **The tabs are `<Link>`s with real URLs.** A button plus local state is why the queue could not be
+  linked to, the active tab vanished on a refresh, and the back button walked out of the page. `all` is
+  the *absence* of a filter rather than a value of `all`, so `/admin/deposits` is the unfiltered list
+  and the URL stays clean.
+- **Tabs carry counts**, so they say how much is waiting rather than only what is on screen.
+  `/admin/deposits` reads `All 76 · Accept 0 · Accepted 56 · Rejected 20` at a glance.
+- **`PAGE_SIZE = 20` is exported once** from `src/components/admin/parts.tsx` and imported by both
+  the query and the pager. They used to disagree — the ledger paged by 100 while `Pager` divided by 50,
+  so it advertised twice the real page count and "Next" walked onto empty screens.
+- **The pager's `base` must already carry the other active filters**, or paging drops them. Both queue
+  pages build it from a `URLSearchParams`.
+- **A banned player is visible in the money queues.** Deposit and withdrawal rows carry a `BANNED`
+  chip, because approving money for a suspended account is exactly the mistake worth surfacing.
+  The player list has its own **Banned** tab.
 
 ## How money moves
 
@@ -289,8 +391,18 @@ New engine players start with 1000 coins.
 
 `pnpm db:seed` creates `admin@nexus-k.test` / `nexus-admin` (username `admin`, role `superadmin`)
 unless `ADMIN_EMAIL` / `ADMIN_PASSWORD` / `ADMIN_USERNAME` override it. The seed only creates that
-account when it is missing, and it never overwrites an existing gateway, payout method or setting —
-re-seeding will not revert configuration you changed in the back office.
+account when it is missing, and it never overwrites an existing setting, an operator's gateway
+credentials or a rail's receiving number — re-seeding will not revert configuration you changed in
+the back office. It *does* refresh a rail's `name`, `logo` and `sort`, because those are what the
+player sees and there is nothing to configure about them; a stale asset path would break the deposit
+tile rather than preserve a choice.
+
+`pnpm db:apply-defaults` moves an already-seeded database onto a changed default, and retires the rows
+for settings that no longer exist. `db:seed` only ever *creates* a missing setting, which is right for
+an operator's edit and wrong for a default nobody has overridden — so this script exists as a
+deliberate act rather than something seeding does behind your back. It also disables the generic
+**Manual** bank rail and clears its account details: it used to ship enabled with an invented bank name,
+IBAN and sort code, which is the one thing an operator is most likely to switch on and leave.
 
 ## Scripts
 
@@ -303,6 +415,7 @@ re-seeding will not revert configuration you changed in the back office.
 | `pnpm typecheck`      | `tsc --noEmit`                                             |
 | `pnpm db:push`        | Push the Prisma schema to MongoDB                          |
 | `pnpm db:seed`        | Seed settings, rails, payout methods and the first admin   |
+| `pnpm db:apply-defaults` | Move an existing database onto a changed seed default    |
 | `pnpm db:e2e`         | Money-path test against a live engine                      |
 | `pnpm db:e2e:http`    | Same paths again, driven over HTTP through the real pages  |
 | `./scripts/optimize-upload-code.sh` | Rebuild `public/gfx` + `public/sfx` from `public/Upload_Code/` |
@@ -333,6 +446,12 @@ creates throwaway players, so they are safe to re-run.
   the player who uploaded it, the exact uploaded bytes to an admin, and 404 for a slip that never
   existed. A KPay withdrawal is driven through to a full refund, asserting the number and account name
   land on the row — those are what the Telegram alert quotes.
+
+  It also asserts the **rails players are offered**. The catalogue keeps every rail it has ever had,
+  because "only KPay and Wave" is enforced by a filter (`PLAYER_RAILS` in `src/lib/gateways.ts`) rather
+  than by deleting rows they stay editable at `/admin/gateways`. That makes the filter worth a test: the
+  moment someone widens it, a Stripe or a bank transfer is one keystroke from taking real money, so the
+  suite loads the deposit page and fails if any other rail's id appears in it.
 
   It mints both cookies **before** any request goes out. The mint spawns `tsx`, which blocks the event
   loop; a keep-alive socket opened before that goes stale and the next request dies mid-body with
