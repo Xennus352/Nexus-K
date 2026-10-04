@@ -20,12 +20,14 @@ export default async function AppLayout({
 
   // The engine is a separate process and may be down — never block the shell on it.
   const balance = user.engineUid === null ? null : await walletOf(user.engineUid).catch(() => null);
+  // A row with no engine uid cannot play, so there is nothing to be live about.
+  const uid = user.engineUid ?? -1;
 
   return (
     <div className="flex min-h-screen bg-transparent text-white">
       <Sidebar />
       <div className="flex min-w-0 flex-1 flex-col">
-        <Topbar email={user.email} balance={balance} />
+        <Topbar email={user.email} uid={uid} balance={balance} />
         <div className="flex-1 p-4 pb-24 md:p-6 md:pb-6">{children}</div>
         <MobileNav />
       </div>

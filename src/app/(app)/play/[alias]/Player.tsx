@@ -1,15 +1,18 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import gsap from "gsap";
 import confetti from "canvas-confetti";
 import { logSpin } from "@/server/actions";
 import {
-  themeFor, assetFor, sceneFor, buttonsFor, multArt, MULTIPLIERS,
+  themeFor, assetFor, sceneFor, multArt, MULTIPLIERS,
   badgeFor, type BadgeKind, type Multiplier,
 } from "@/lib/theme";
 import Loader from "@/components/Loader";
+import ConsoleButton from "@/components/game/ConsoleButton";
+import CountUp from "@/components/CountUp";
+import { publishBalance, subscribeBalance } from "@/server/realtime";
 
 type Grid = number[][];
 type Win = { pay: number; sym: number; num: number; li: number; xy: [number, number][] };
@@ -147,47 +150,6 @@ function rgbaCss(alpha: number): string {
 }
 
 /**
- * A control drawn on the real button plate art from public/assets/buttons.
- * The plate sits behind the label with a soft scrim so text stays readable
- * whatever the plate art looks like.
- */
-function Plate({
-  art, label, title, onClick, disabled, active, testId, className = "", children,
-}: {
-  art: string;
-  label?: string;
-  title?: string;
-  onClick?: () => void;
-  disabled?: boolean;
-  active?: boolean;
-  testId?: string;
-  className?: string;
-  children?: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      data-testid={testId}
-      aria-label={title ?? label}
-      title={title}
-      onClick={onClick}
-      disabled={disabled}
-      className={`relative isolate flex items-center justify-center overflow-hidden rounded-2xl transition active:scale-95 disabled:pointer-events-none disabled:opacity-40 ${
-        active ? "ring-2 ring-white/70" : "hover:brightness-110"
-      } ${className}`}
-    >
-      <img src={art} alt="" aria-hidden className="absolute inset-0 -z-10 h-full w-full object-cover" />
-      <span
-        aria-hidden
-        className="absolute inset-0 -z-10"
-        style={{ background: "linear-gradient(180deg, rgba(0,0,0,0.10), rgba(0,0,0,0.42))" }}
-      />
-      <span className="text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.95)]">{children ?? label}</span>
-    </button>
-  );
-}
-
-/**
  * Rolls the symbols inside one reel cell. The rolling art lives in its own
  * layer that React never touches, because replacing React-owned children would
  * desync it from the DOM; the reel's real symbol is rendered by React underneath
@@ -242,7 +204,22 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
   const cols = grid?.length ?? 5;
   const ready = grid !== null;
   const scene = useMemo(() => sceneFor(alias, cols), [alias, cols]);
-  const buttons = useMemo(() => buttonsFor(alias), [alias]);
+
+  /**
+   * Keeps this tab's balance in step with the player's other tabs.
+   *
+   * Two reasons it is not just `setWallet(j.wallet)`: the topbar on every other
+   * page has its own copy of the balance, and a spin in this tab used to leave it
+   * showing the pre-spin figure until a navigation happened. Subscribing means the
+   * lobby and wallet update the moment a spin settles.
+   */
+  useEffect(() => subscribeBalance(uid, setWallet), [uid]);
+
+  /** Applies a new engine balance and tells the other tabs about it. */
+  const applyWallet = useCallback((next: number) => {
+    setWallet(next);
+    publishBalance({ uid, balance: next });
+  }, [uid]);
 
   // Slow drifting glow blobs behind the cabinet (GSAP, theme-coloured).
   useEffect(() => {
@@ -327,7 +304,7 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
       if (!j || j.what || g.length === 0) { setError(j?.what ?? "engine returned no data"); return; }
       setGid(j.gid);
       setGrid(g);
-      setWallet(j.wallet);
+      applyWallet(j.wallet);
       if (typeof j.game.bet === "number") setBet(j.game.bet);
       if (typeof j.game.sel === "number") setSel(j.game.sel);
       // Generic-grid games omit bet/sel from the deal, so read them back.
@@ -335,7 +312,7 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
       if (typeof sb?.sel === "number" && sb.sel > 0) setSel(sb.sel);
       if (typeof bb?.bet === "number" && bb.bet > 0) setBet(bb.bet);
     })();
-  }, [uid, alias]);
+  }, [uid, alias, applyWallet]);
 
   async function doSpin() {
     if (busy || gid == null) return;
@@ -364,7 +341,7 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
     if (soundOn) audio.reelStop();
 
     setGrid(finals);
-    setWallet(j.wallet);
+    applyWallet(j.wallet);
     setGain(j.game.gain ?? j.gain ?? 0);
     if (typeof j.game.bet === "number" && j.game.bet > 0) setBet(j.game.bet);
     if (typeof j.game.sel === "number" && j.game.sel > 0) setSel(j.game.sel);
@@ -419,7 +396,7 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
     if (!j || j.what || j.gain == null) { setNotice(`⚠️ ${j?.what ?? "engine returned no result"}`); setBusy(false); return; }
     const won = (j.gain ?? 0) > risk;
     setGain(j.gain ?? 0);
-    setWallet(j.wallet);
+    applyWallet(j.wallet);
     setLastWin(j.gain ?? 0);
     setNotice(won ? `🎉 Won ×${mult}! ${risk} → ${j.gain}` : `💔 Lost the gamble — ${risk} staked`);
     if (soundOn) {
@@ -435,12 +412,20 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
     // bare `null` on success, so an empty reply means "done", not "failed".
     const j = await enginePost("slot/collect", { gid });
     if (j?.what) { setNotice(`⚠️ ${j.what}`); return; }
-    if (typeof j?.wallet === "number") setWallet(j.wallet);
+    if (typeof j?.wallet === "number") applyWallet(j.wallet);
     setGain(0);
     setNotice("");
   }
 
   const rows = grid?.[0]?.length ?? 0;
+  /**
+   * The smallest stake the engine will accept, and the largest the wallet covers.
+   *
+   * Both are `1`-floored rather than allowed to reach 0: `maxBet` dividing a
+   * balance by the line count must never produce a bet of zero, or the spin would
+   * be a no-op that still costs a request.
+   */
+  const minBet = 1;
   // Cells that are part of a paying line this spin (used for the gem tiles).
   const winCells = useMemo(() => {
     const set = new Set<number>();
@@ -453,13 +438,31 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
   // The engine charges the bet per line, so the real stake is bet × active lines.
   const lines = sel || 1;
   const totalBet = bet * lines;
-  const maxBet = () => Math.max(1, Math.floor(wallet / lines));
-  const sym = (v: number) => <img
-    src={assets.images[v % assets.images.length]}
-    alt=""
-    className="h-full w-full object-contain p-1"
-    style={assets.pixelGrid ? { imageRendering: "pixelated" } : undefined}
-  />;
+  const maxBet = () => Math.max(minBet, Math.floor(wallet / lines));
+  /**
+   * Resets the stake to the floor.
+   *
+   * The counterpart to Max, and deliberately not "÷2" or some middle value: the
+   * reason a player reaches for Min is that they have lost most of the balance
+   * and want to keep playing cheaply, which means the smallest stake the engine
+   * takes. Anything else leaves them still able to lose it in one spin.
+   */
+  const minBetTo = () => {
+    setBet(minBet);
+    setNotice("");
+  };
+  const sym = (v: number) => (
+    // The settled symbol needs to beat the cell's background frame and lose to the
+    // roll layer; both are pinned in globals.css. `cell-sym` is what selects it.
+    <span className="cell-sym block h-full w-full">
+      <img
+        src={assets.images[v % assets.images.length]}
+        alt=""
+        className="h-full w-full object-contain p-1"
+        style={assets.pixelGrid ? { imageRendering: "pixelated" } : undefined}
+      />
+    </span>
+  );
 
   return (
     <div className="flex w-full max-w-5xl flex-col items-center gap-5 text-white">
@@ -481,7 +484,14 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
         <div className="flex w-full items-center justify-between gap-2 sm:w-auto sm:justify-end sm:gap-3">
           <div className="min-w-0 flex-1 rounded-xl border border-sky-500/30 bg-black/60 px-2 py-1.5 text-center sm:min-w-[130px] sm:flex-none sm:px-4 sm:py-2">
             <span className="block text-[10px] font-semibold uppercase text-sky-400/70">Balance</span>
-            <span data-testid="game-balance" className="block truncate font-mono text-base font-bold text-sky-300 drop-shadow-[0_0_8px_rgba(56,189,248,0.7)] sm:text-xl">💎 {wallet.toLocaleString()}</span>
+            {/* Counts to the new figure and flashes green or rose for the direction of
+                travel, so a win or a loss is legible without reading the digits. */}
+            <span
+              data-testid="game-balance"
+              className="block truncate font-mono text-base font-bold drop-shadow-[0_0_8px_rgba(56,189,248,0.7)] sm:text-xl"
+            >
+              💎 <CountUp value={wallet} />
+            </span>
           </div>
           <div className="min-w-0 flex-1 rounded-xl border border-sky-500/30 bg-black/60 px-2 py-1.5 text-center sm:min-w-[130px] sm:flex-none sm:px-4 sm:py-2">
             <span className="block text-[10px] font-semibold uppercase text-emerald-400/70">Last Win</span>
@@ -723,11 +733,15 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
                           : `inset 0 0 22px rgba(0,0,0,0.5)`,
                       }}>
                       {gem ? (
-                        <img src={gem} alt="" className="h-full w-full object-contain p-1" />
+                        <span className="cell-sym block h-full w-full">
+                          <img src={gem} alt="" className="h-full w-full object-contain p-1" />
+                        </span>
                       ) : (
                         sym(v)
                       )}
-                      {/* Rolling layer: GSAP fills this while the reel spins. */}
+                      {/* Rolling layer: GSAP fills this while the reel spins. The
+                          cell clips it — see `.play-cell` in globals.css for why a
+                          rolling symbol used to appear to slide over the row above. */}
                       <span aria-hidden className="cell-roll" ref={(el) => { rollRefs.current[idx] = el; }} />
                     </div>
                   );
@@ -740,50 +754,88 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
         {/* Console */}
         <div className="relative mt-4 flex flex-col items-center justify-between gap-4 pt-4 lg:flex-row" style={{ borderTop: `1px solid ${scene.rim}` }}>
           <div className="flex flex-wrap items-center justify-center gap-2 rounded-2xl border p-2" style={{ borderColor: scene.rim, backgroundImage: scene.felt }}>
-            <Plate art={buttons.minus} title="Lower bet" onClick={() => setBet(Math.max(1, bet - 1))} disabled={busy} className="h-11 w-11 text-xl font-black">
+            <ConsoleButton
+              tone="neutral"
+              title="Lower bet"
+              onClick={() => setBet(Math.max(minBet, bet - 1))}
+              disabled={busy || bet <= minBet}
+              className="h-11 w-11 text-xl"
+            >
               −
-            </Plate>
+            </ConsoleButton>
             <div className="min-w-[104px] text-center">
               <span className="block text-[9px] font-semibold uppercase text-sky-400/60">Total Bet</span>
               <span data-testid="total-bet" className="font-mono text-lg font-bold text-sky-300">{totalBet}</span>
               <span className="block text-[9px] text-slate-400/70">{bet} × {lines} lines</span>
             </div>
-            <Plate art={buttons.plus} title="Raise bet" onClick={() => setBet(bet + 1)} disabled={busy} className="h-11 w-11 text-xl font-black">
+            <ConsoleButton
+              tone="neutral"
+              title="Raise bet"
+              onClick={() => setBet(bet + 1)}
+              disabled={busy}
+              className="h-11 w-11 text-xl"
+            >
               +
-            </Plate>
-            <Plate art={buttons.keep} title="Max bet" onClick={() => setBet(maxBet())} disabled={busy} className="h-11 px-4 text-xs font-black uppercase tracking-wider">
+            </ConsoleButton>
+            {/* Min and Max sit together as the two ends of the same scale, so they
+                read as a pair rather than as two unrelated shortcuts. */}
+            <ConsoleButton
+              tone="blue"
+              testId="min-btn"
+              title={`Set the lowest stake (${minBet})`}
+              onClick={minBetTo}
+              disabled={busy || bet <= minBet}
+              className="h-11 px-3 text-xs"
+            >
+              Min
+            </ConsoleButton>
+            <ConsoleButton
+              tone="amber"
+              testId="max-btn"
+              title="Max bet"
+              onClick={() => setBet(maxBet())}
+              disabled={busy || bet >= maxBet()}
+              className="h-11 px-3 text-xs"
+            >
               Max
-            </Plate>
+            </ConsoleButton>
           </div>
 
           <div className="flex flex-1 flex-wrap items-center justify-center gap-3">
-            <Plate
-              art={buttons.auto}
+            <ConsoleButton
+              tone={auto ? "rose" : "blue"}
               testId="auto-btn"
               title={auto ? "Stop autoplay" : "Autoplay"}
               onClick={() => setAuto(!auto)}
               active={auto}
-              className="h-16 min-w-[92px] flex-col gap-0.5 text-xs font-black uppercase tracking-wider"
+              className="h-16 min-w-[92px] flex-col gap-0.5 text-xs"
             >
               <span className="text-base leading-none">{auto ? "⏹" : "🔄"}</span>
               <span className="leading-none">{auto ? "Stop" : "Auto"}</span>
-            </Plate>
-            <Plate
-              art={buttons.spin}
+            </ConsoleButton>
+            <ConsoleButton
+              tone="gold"
+              emphasis
               testId="spin-btn"
               title="Spin"
               onClick={() => { setAuto(false); void safeSpin(); }}
               disabled={busy}
-              className="min-w-[150px] flex-1 px-10 py-4 text-2xl font-black uppercase tracking-widest"
+              className="min-w-[150px] flex-1 px-10 py-4 text-2xl tracking-widest"
             >
               {busy ? "…" : "Spin ▶"}
-            </Plate>
+            </ConsoleButton>
           </div>
 
           <div className="flex gap-2">
-            <Plate art={buttons.menu} title="Spin history" onClick={() => setShowHistory(true)} className="h-11 w-11 text-base">
+            <ConsoleButton
+              tone="neutral"
+              testId="history-btn"
+              title="Spin history"
+              onClick={() => setShowHistory(true)}
+              className="h-11 w-11 text-base"
+            >
               🕘
-            </Plate>
+            </ConsoleButton>
           </div>
         </div>
 
@@ -812,9 +864,9 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
                   </button>
                 );
               })}
-              <Plate art={buttons.keep} testId="collect-btn" title="Collect the win" onClick={collect} disabled={busy} className="h-12 px-5 text-sm font-black uppercase tracking-wider">
+              <ConsoleButton tone="green" testId="collect-btn" title="Collect the win" onClick={collect} disabled={busy} className="h-12 px-5 text-sm">
                 Keep
-              </Plate>
+              </ConsoleButton>
             </div>
             <p className="text-[11px] text-slate-400/70">Win is already in your balance — gamble it or keep it.</p>
           </div>
@@ -827,7 +879,29 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
         )}
       </div>
 
-      <Link href="/lobby" className="text-sm text-sky-400 underline">← Back to lobby</Link>
+      {/* A bare underlined link read as a browser default sitting under a themed
+            cabinet. This is the one control a player presses most often, so it
+            gets a real plate: the same layered face as the console, at rest. */}
+      <Link
+        href="/lobby"
+        className="nk-btn group relative isolate inline-flex cursor-pointer select-none items-center gap-2 overflow-hidden rounded-2xl border border-sky-400/30 bg-gradient-to-b from-[#4a5da0] to-[#232f5c] px-6 py-3 text-sm font-bold uppercase tracking-wider text-sky-100 transition-[transform,box-shadow] duration-150 hover:-translate-y-0.5 hover:shadow-[0_8px_20px_rgba(0,0,0,0.55),0_0_24px_rgba(56,189,248,0.35)] active:translate-y-0"
+        style={{
+          boxShadow:
+            "inset 0 1px 0 rgba(255,255,255,0.35), inset 0 -3px 8px rgba(0,0,0,0.35), 0 3px 0 rgba(10,14,32,0.9), 0 6px 14px rgba(0,0,0,0.5)",
+          textShadow: "0 1px 2px rgba(0,0,0,0.7)",
+        }}
+      >
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-0 -z-10 opacity-50 transition-transform duration-300 group-hover:translate-x-1/4"
+          style={{
+            background:
+              "linear-gradient(105deg, rgba(255,255,255,0.35) 0%, rgba(255,255,255,0.08) 34%, transparent 64%)",
+          }}
+        />
+        <span aria-hidden className="transition-transform duration-200 group-hover:-translate-x-0.5">←</span>
+        Back to lobby
+      </Link>
 
       {/* Paytable modal */}
       {showPaytable && (

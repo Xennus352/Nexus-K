@@ -40,3 +40,34 @@ body {
   justify-content: center;
   pointer-events: none;
 }
+
+/* One reel cell.
+ *
+ * `overflow: hidden` is the fix for symbols appearing to roll *over* their
+ * neighbours. The roll layer is inset:0 in the cell, but GSAP translates it to
+ * y:-16 per step and y:-22 with scale 1.2 on the landing — both of which push
+ * its content outside the cell's box. Without clipping here, a rolling symbol in
+ * row 2 visibly slid up across row 1 while row 1 sat still showing its settled
+ * symbol, which reads as exactly the "some symbols are stuck, others are rolling
+ * over them" artefact.
+ *
+ * `isolation: isolate` gives the cell its own stacking context, so the roll
+ * layer's z-index:2 is resolved against the cell rather than the whole reel
+ * window. Without it the roll competes with the payline overlay (z-20) and the
+ * big-win scrim (z-30), and a roll would paint over the very payline it is
+ * drawing symbols for.
+ *
+ * The settled symbol sits at z-index:1 explicitly rather than relying on being
+ * unpositioned: an unpositioned element loses to a positioned sibling no matter
+ * how far back its z-index is meant to be, which left the resting symbol and the
+ * rolling one arguing about who was on top. */
+.play-cell {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.play-cell > .cell-sym {
+  position: relative;
+  z-index: 1;
+}

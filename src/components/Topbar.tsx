@@ -1,12 +1,16 @@
 import Link from "next/link";
 import { Gem, Bell, Plus, Minus, LogOut, Headset } from "lucide-react";
 import { logout } from "@/server/actions";
+import BalanceReadout from "@/components/BalanceReadout";
 
 export default async function Topbar({
   email,
+  uid,
   balance,
 }: {
   email: string;
+  /** Engine uid, so the live balance ignores updates meant for another account. */
+  uid: number;
   /** Authoritative engine balance, or null when the engine could not be read. */
   balance: number | null;
 }) {
@@ -20,8 +24,13 @@ export default async function Topbar({
       <div className="flex min-w-0 items-center gap-2 sm:gap-4">
         <div className="min-w-0 rounded-xl border border-sky-500/30 bg-sky-950/40 px-2 py-1.5 text-right sm:px-4 sm:py-2">
           <div className="text-[9px] tracking-widest text-sky-400 sm:text-[10px]">TOTAL BALANCE</div>
-          <div className="truncate font-mono text-base font-bold text-sky-200 sm:text-lg">
-            💎 {balance !== null ? balance.toLocaleString() : "—"}
+          <div
+            data-testid="topbar-balance"
+            className="truncate font-mono text-base font-bold text-sky-200 sm:text-lg"
+          >
+            {/* Live: counts to each new figure and follows updates the game
+                broadcasts from another tab. */}
+            <BalanceReadout uid={uid} initial={balance} />
           </div>
         </div>
         <Link
