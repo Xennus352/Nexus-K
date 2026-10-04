@@ -1,27 +1,37 @@
 import Link from "next/link";
-import { Gem, Bell, Plus, Minus, LogOut, Headset } from "lucide-react";
+import { Gem, Plus, Minus, LogOut } from "lucide-react";
 import { logout } from "@/server/actions";
 import BalanceReadout from "@/components/BalanceReadout";
+import NotificationBell from "@/components/NotificationBell";
+import type { Notice } from "@/server/notices";
 
 export default async function Topbar({
   email,
+  username,
   uid,
   balance,
+  notices,
 }: {
   email: string;
-  /** Engine uid, so the live balance ignores updates meant for another account. */
+  /** Falls back to the email's first letter for the avatar. */
+  username?: string;
+  /** Engine uid, so the live balance and notifications ignore another account. */
   uid: number;
   /** Authoritative engine balance, or null when the engine could not be read. */
   balance: number | null;
+  /** Server-rendered money events, so the bell's badge is right on first paint. */
+  notices: Notice[];
 }) {
+  const initial = (username?.trim() || email)[0].toUpperCase();
+
   return (
-    <header className="sticky top-0 z-10 flex items-center justify-between gap-2 border-b border-blue-950 bg-[#2f3f76]/85 px-3 py-3 backdrop-blur sm:px-6 sm:py-4">
+    <header className="sticky top-0 z-20 flex items-center justify-between gap-2 border-b border-blue-950 bg-[#2f3f76]/85 px-3 py-3 backdrop-blur sm:px-6 sm:py-4">
       <div className="hidden items-center gap-2 text-amber-300 sm:flex">
         <Gem className="h-5 w-5" />
         <span className="font-bold">VIP</span>
         <span className="text-slate-500">DIAMOND</span>
       </div>
-      <div className="flex min-w-0 items-center gap-2 sm:gap-4">
+      <div className="flex min-w-0 items-center gap-2 sm:gap-3">
         <div className="min-w-0 rounded-xl border border-sky-500/30 bg-sky-950/40 px-2 py-1.5 text-right sm:px-4 sm:py-2">
           <div className="text-[9px] tracking-widest text-sky-400 sm:text-[10px]">TOTAL BALANCE</div>
           <div
@@ -49,22 +59,27 @@ export default async function Topbar({
           <Minus className="h-4 w-4" />
           <span className="hidden sm:inline">Withdraw</span>
         </Link>
-        <Link href="/support" aria-label="Support" className="hidden md:block">
-          <Headset className="h-5 w-5 text-slate-400 transition hover:text-sky-300" />
-        </Link>
-        <div className="relative hidden sm:block">
-          <Bell className="h-5 w-5 text-slate-400" />
-          <span className="absolute -right-1 -top-1 h-2 w-2 rounded-full bg-red-500" />
-        </div>
+
+        <NotificationBell uid={uid} initial={notices} />
+
+        {/* The avatar is the account menu's trigger. It carries the username as a
+            label rather than just the initial, so the control is not a mystery
+            circle to a screen reader. */}
         <Link
-          href="/wallet"
-          title={email}
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-sky-400/50 bg-sky-900 font-bold text-sky-200 transition hover:border-sky-300 sm:h-10 sm:w-10"
+          href="/account"
+          title={`${email} — my account`}
+          aria-label="My account"
+          data-testid="account-avatar"
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-sky-400/50 bg-sky-900 font-bold text-sky-200 transition hover:border-sky-300 hover:bg-sky-800 sm:h-10 sm:w-10"
         >
-          {email[0].toUpperCase()}
+          {initial}
         </Link>
         <form action={logout} className="shrink-0">
-          <button title="Logout" aria-label="Logout">
+          <button
+            title="Logout"
+            aria-label="Logout"
+            className="flex cursor-pointer items-center rounded-lg p-1 transition hover:bg-white/10"
+          >
             <LogOut className="h-5 w-5 text-slate-500 hover:text-white" />
           </button>
         </form>

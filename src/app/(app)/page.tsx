@@ -49,7 +49,7 @@ export default async function Home({
           },
         })
       : Promise.resolve(null),
-    settingNumber("bonus.daily", 250),
+    settingNumber("bonus.daily", 1000),
   ]);
 
   let featured: { prov: string; name: string; sx: number; sy: number; rtp: number[] }[] = [];
@@ -148,10 +148,10 @@ export default async function Home({
               WITHDRAW
             </Link>
             <Link
-              href="/support"
+              href="/account"
               className="rounded-xl border border-sky-500/30 bg-sky-950/40 px-4 py-2 text-xs font-bold text-sky-300 transition hover:bg-sky-900/50"
             >
-              SUPPORT
+              MY ACCOUNT
             </Link>
           </div>
         </section>
