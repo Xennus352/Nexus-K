@@ -389,29 +389,48 @@ async function main() {
   check("signed-out withdrawal is refused", anonWithdraw.status, 401);
 
   /* ------------------------------------------------------------- the deposit */
-  const manual = await prisma.gateway.findFirst({ where: { alias: "Manual", status: true } });
-  if (!manual) throw new Error("no enabled Manual gateway — run pnpm db:seed");
-
+  // KPay, not the generic "Manual" rail. Both are `manual` drivers and need the
+  // same screenshot proof, but KPay is one of the two rails a player is actually
+  // offered — the seed now ships the generic bank rail disabled with no account
+  // details, since it used to carry an invented IBAN and sort code that somebody
+  // would eventually have switched on.
+  const rail = await prisma.gateway.findFirst({ where: { alias: "KPay", status: true } });
+  if (!rail) throw new Error("KPay is not enabled — run pnpm db:seed");
+  const railCurrency = rail.currency.toUpperCase();
   const depPage = await html("/deposit", session.cookie);
-  check("deposit page lists the manual rail", depPage.includes("Manual"), true);
+
+  check("deposit page lists KPay", depPage.includes("KPay"), true);
+  check("deposit page lists Wave", depPage.includes("Wave"), true);
+
+  // The catalogue keeps every rail it has ever had — they stay editable at
+  // /admin/gateways — so "only KPay and Wave" is enforced by a filter, not by
+  // deleting rows. That makes it a filter worth a test: the moment someone widens
+  // PLAYER_RAILS, a Stripe or a bank transfer is one keystroke from taking real
+  // money, and this is the check that notices.
+  const hidden = await prisma.gateway.findMany({
+    where: { alias: { notIn: ["KPay", "Wave"] } },
+    select: { alias: true, id: true },
+  });
+  const leaked = hidden.filter((g) => depPage.includes(g.id)).map((g) => g.alias);
+  check(`no other rail is offered to players (${hidden.length} hidden)`, leaked, []);
 
   /* ---------------------------------------------------- the transfer proof */
   const pendingBefore = await prisma.deposit.count({
-    where: { gatewayId: manual.id, status: "pending" },
+    where: { gatewayId: rail.id, status: "pending" },
   });
 
   // A manual deposit without a screenshot would leave an operator with an amount
   // and no way to match it, so the slip is mandatory rather than optional.
   const noSlip = await api("/api/payments/checkout", {
-    form: { gatewayId: manual.id, amount: "40", currency: "USD" },
+    form: { gatewayId: rail.id, amount: "40", currency: railCurrency },
   });
-  check("manual deposit without a screenshot is refused", noSlip.status, 400);
+  check("a manual rail deposit without a screenshot is refused", noSlip.status, 400);
 
   // `File.type` is client-supplied, so the server sniffs magic bytes instead. A
   // text file renamed to .png and *declared* as image/png is the attack this
   // replaces: accepting it would store a file an operator later opens as an image.
   const disguised = await api("/api/payments/checkout", {
-    form: { gatewayId: manual.id, amount: "40", currency: "USD" },
+    form: { gatewayId: rail.id, amount: "40", currency: railCurrency },
     files: [
       {
         field: "slip",
@@ -426,18 +445,19 @@ async function main() {
   // runs, so what matters is that the rejected upload left nothing *new* behind.
   check(
     "no deposit row survives a rejected slip",
-    await prisma.deposit.count({ where: { gatewayId: manual.id, status: "pending" } }),
+    await prisma.deposit.count({ where: { gatewayId: rail.id, status: "pending" } }),
     pendingBefore,
   );
 
   const checkout = await api("/api/payments/checkout", {
-    form: { gatewayId: manual.id, amount: "40", currency: "USD" },
+    form: { gatewayId: rail.id, amount: "40", currency: railCurrency },
     files: [{ field: "slip", name: "transfer.png", type: "image/png", bytes: PNG_1PX }],
   });
   check("checkout succeeds", checkout.status, 200);
   const trx = String(checkout.json.trx ?? "");
-  check("checkout quotes the coins it will credit", checkout.json.coins, 40);
-  check("manual rail sends the player to the instructions page", checkout.json.redirect, `/deposit/${trx}`);
+  const quoted = Number(checkout.json.coins);
+  check("checkout quotes whole coins", Number.isInteger(quoted) && quoted > 0, true);
+  check("a manual rail sends the player to the instructions page", checkout.json.redirect, `/deposit/${trx}`);
   check("instructions page renders", (await api(`/deposit/${trx}`)).status, 200);
 
   /* --------------------------------------------------------- the slip itself */
@@ -490,7 +510,7 @@ async function main() {
   check("approve redirects", approve.status, 303);
   check("approve reports success", approve.location.includes("ok="), true);
   check("deposit is settled", (await api(`/api/payments/status/${trx}`)).json.status, "success");
-  check("approve credited exactly the quoted coins", await wallet(), beforeApprove + 40);
+  check("approve credited exactly the quoted coins", await wallet(), beforeApprove + quoted);
 
   // The replay path: a double-click or a retried webhook must not pay twice.
   const replay = await api("/admin/deposits", {
@@ -498,7 +518,7 @@ async function main() {
     cookie: adminHeader,
   });
   check("replayed approve still redirects", replay.status, 303);
-  check("replayed approve credits nothing", await wallet(), beforeApprove + 40);
+  check("replayed approve credits nothing", await wallet(), beforeApprove + quoted);
 
   /* --------------------------------------------------------- the withdrawal */
   const method = await prisma.withdrawMethod.findFirst({ where: { code: "bank", status: true } });
