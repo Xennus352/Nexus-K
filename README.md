@@ -27,6 +27,59 @@ Inspired by these open-source projects:
   banned), and the referral code with a copy button.
 - **Deposits are KPay and Wave only.** See [Proving a deposit](#proving-a-deposit).
 
+## Local games, and turning games on and off
+
+Games come from two places: the Go slotopol engine (`/play/[alias]`, every
+provider game), and this app's own local games (`/play/<route>`). Both are listed
+in the player's lobby, and both pass through the same per-game switch.
+
+### African Buffalo (`/play/african-buffalo`)
+
+A five-reel, three-row slot built on the bundled `african_buffalo_slot_assets`
+pack: the savannah-sunset background (storm art during free spins, an animated
+dust-and-lightning layer on top), the animal and card symbols, the reel frame,
+the paytable and message panels, and the big-win and mega-win banners. 20 fixed
+paylines, a wild buffalo that substitutes, sunset scatters that start a free
+spins round, and multiplier symbols (x2/x3/x5, distinct multipliers multiply
+together) added to the spin's winnings.
+
+Every spin is **server-authoritative** in `src/app/api/game/buffalo/spin`: the
+server debits the bet with `move()`, picks the grid with `crypto.randomInt`,
+scores it with the fixed paytable in `src/lib/buffalo.ts` (10 paylines), and
+credits the win — the client only displays the answer. This is the only game
+whose money does not move through the engine, which is exactly why it is wired
+separately. Free spins spend from a `BuffaloFeature` collection so the promised
+count lives somewhere the browser cannot write; refreshing the page simply
+resumes the round with the count the server last stored.
+
+### Turning games on and off
+
+`/admin/games` lists the full catalogue — local and engine games alike — with
+three per-row overrides saved to `GameFlag`: **Visible** (takes the card out of
+the lobby and stops its screen loading), **Maintenance** (keeps the card but
+the screen explains the game is being worked on, with an optional message), and
+a **sort** weight. A touch of any control writes the sparse row; **Reset to
+default** drops it.
+
+The sparse-override model is deliberate. The engine's catalogue is not in this
+database and changes without us knowing, so the override cannot be a row per
+game — that would need a row written for every engine update, and a forgotten
+row would silently hide a game someone is paying a provider to run. Absence of
+a row means "live", which is the behaviour an operator expects after a provider
+update.
+
+### Site maintenance
+
+`site.maintenance` (and its `site.maintenance_note`, both editable in
+`/admin/settings`) is the global kill switch. When it is on, the `(app)` layout,
+the game screen and the player-facing API routes all answer with a "server
+under maintenance" notice and nothing else — no deposits, no spins, no balances.
+The back office stays up, so the operator can switch it off. It is read straight
+from the database on every request rather than going through the 30-second
+settings cache: a kill switch that takes up to half a minute to notice it is on
+is not much of a switch, and an operator who flips it and reloads wants to see
+it flipped.
+
 ### The game screen
 
 - **Reels clip.** `.play-cell` carries `overflow: hidden` and `isolation: isolate`, and the settled

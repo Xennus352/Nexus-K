@@ -1,17 +1,28 @@
 import { getSession } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { walletOf } from "@/lib/wallet";
+import { siteMaintenance } from "@/lib/maintenance";
 import { noticesFor } from "@/server/notices";
 import Sidebar from "@/components/Sidebar";
 import Topbar from "@/components/Topbar";
 import MobileNav from "@/components/MobileNav";
 import CopyButton from "@/components/CopyButton";
+import MaintenanceScreen from "@/components/MaintenanceScreen";
 
 export default async function AppLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  // Checked before anything else, and before the session, so the switch covers a
+  // signed-out visitor too — an operator turning the site on mid-migration means
+  // "nobody reaches anything", not "signed-in players stop".
+  //
+  // The back office is deliberately not under this layout, so the person who turned
+  // it on is never locked out of the switch that turns it off.
+  const maint = await siteMaintenance();
+  if (maint.active) return <MaintenanceScreen note={maint.note} />;
+
   const s = await getSession();
   if (!s) return <div className="min-h-screen bg-transparent text-white">{children}</div>;
 

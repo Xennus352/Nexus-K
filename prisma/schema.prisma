@@ -52,6 +52,7 @@ model User {
   tickets      SupportTicket[]
   messages     SupportMessage[]
   kyc          KycSubmission?
+  buffaloFeatures BuffaloFeature[]
 }
 
 model Spin {
@@ -64,6 +65,63 @@ model Spin {
   createdAt DateTime @default(now())
 
   @@index([userId, createdAt])
+}
+
+/* -------------------------------------------------------------------- games */
+
+/// An operator's override for one game. A *sparse* table on purpose.
+///
+/// The catalogue itself belongs to the game engine, which lists it over HTTP and
+/// is not in this database — so there is nothing to create a row per game at seed
+/// time, and a row exists only once somebody has actually touched that game. The
+/// absence of a row is the default state and means "visible, in service": a new
+/// game pushed to the engine appears in the lobby with no work here, which is the
+/// behaviour an operator expects when they update a provider.
+///
+/// Storing the other way round — a row per known game, defaulting to hidden — would
+/// make every engine update require a matching row, and a forgotten row would
+/// silently hide a game someone had already paid a provider to be running.
+model GameFlag {
+  id       String @id @default(auto()) @map("_id") @db.ObjectId
+  /// The `PROV/NAME` key from the engine's game list, or a local game's own alias.
+  alias    String @unique
+  /// Free text for the operator's own notes. Never shown to a player.
+  note     String @default("")
+  /// false takes it out of the lobby. The game screen refuses to load it too, so
+  /// hiding a game is a real removal rather than a removed menu entry.
+  visible  Boolean @default(true)
+  /// Suspended on its own, without hiding it: it stays in the lobby and says it is
+  /// under maintenance when opened. For taking one broken provider down while the
+  /// rest of the site stays open — which `site.maintenance` cannot do, because it
+  /// takes everything down with it.
+  maint    Boolean @default(false)
+  /// Player-facing wording for `maint`. Falls back to the site-wide notice.
+  maintNote String @default("")
+  sort      Int     @default(0)
+  updatedAt DateTime @updatedAt
+
+  @@index([visible, maint])
+}
+
+/* ----------------------------------------------------------- buffalo slot */
+
+/// A player's in-progress feature round, held server-side so the browser never gets
+/// to say how many free spins it has left.
+///
+/// The free-spins round is a promise the house makes across several spins: each
+/// one is a real bet that pays out without charging, at a multiplier, until the
+/// promised count is spent. If that counter lived in the client, a page refresh or
+/// a forged request could hand itself another fifty. It lives here instead, and the
+/// spin route moves it — decrementing only after a real spin resolves.
+model BuffaloFeature {
+  // MongoDB requires the primary key to be the `_id` field; it is also the one that
+  // keys the feature to a player, so a document exists only while that feature runs.
+  userId     String @id @map("_id") @db.ObjectId
+  user       User   @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  kind       String @default("free") // free
+  spinsLeft  Float  @default(0)
+  multiplier Float  @default(1)
+  updatedAt  DateTime @updatedAt
 }
 
 /* ------------------------------------------------------------------ admins */

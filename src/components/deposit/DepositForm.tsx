@@ -422,9 +422,14 @@ export default function DepositForm({
                   {/* break-all, not truncate: a phone number is the one value here
                       that must never be cut off, or the copy button copies a
                       fragment of it. */}
+                  {/* The whole value is tappable as a second copy target: one click, no
+                      need to land exactly on the small button. A `data-copy` on the text
+                      itself is picked up by the delegated CopyButton handler. */}
                   <div
                     data-testid="rail-number"
-                    className="break-all font-mono text-lg font-bold tracking-wide text-slate-100"
+                    data-copy={rail.value.trim() === "" ? undefined : rail.value}
+                    title={rail.value.trim() === "" ? undefined : "Click to copy"}
+                    className={`break-all font-mono text-lg font-bold tracking-wide text-slate-100 ${rail.value.trim() === "" ? "" : "cursor-pointer"}`}
                   >
                     {rail.value.trim() === "" ? (
                       <span className="font-sans text-sm font-semibold text-amber-300">

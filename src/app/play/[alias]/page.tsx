@@ -1,7 +1,12 @@
 import { getSession } from "@/lib/session";
 import { redirect } from "next/navigation";
 import { sceneFor } from "@/lib/theme";
+import { gameAccess, localGame } from "@/lib/games";
+import { siteMaintenance } from "@/lib/maintenance";
 import Player from "./Player";
+import GameNotice from "@/components/GameNotice";
+import MaintenanceScreen from "@/components/MaintenanceScreen";
+import BuffaloCabinet from "@/components/game/BuffaloCabinet";
 
 /**
  * The game screen, deliberately outside the `(app)` chrome.
@@ -42,7 +47,39 @@ export default async function PlayPage({
   const s = await getSession();
   if (!s) redirect("/?error=Login+required");
 
-  const name = decodeURIComponent(alias);
+  const route = decodeURIComponent(alias);
+  // A game screen has no path to a working session that this route cannot see, so
+  // the kill switch has to be checked here as well — this route lives outside the
+  // `(app)` shell, which is the only place a player normally sees it. A game that
+  // loads while the database is being migrated is a game that records a spin
+  // against a schema that is about to change.
+  const maint = await siteMaintenance();
+  if (maint.active) return <MaintenanceScreen note={maint.note} />;
+
+  // `hidden` redirects rather than 404ing or redirecting to an error: the operator
+  // removed it, and the lobby is always a sensible place to put a player back.
+  // `maintenance` gets the explanation the lobby's two switches demand.
+  const local = localGame(route);
+  const gameKey = local ? local.key : route;
+  const access = await gameAccess(gameKey);
+  if (access.blocked && access.reason === "hidden") redirect("/lobby");
+  if (access.blocked && access.reason === "maintenance") {
+    return (
+      <GameNotice
+        title={local ? local.title : route}
+        note={access.note}
+      />
+    );
+  }
+
+  // Local games bring their own cabinet art and their own full-screen layout; the
+  // shared `h-[100dvh]` frame below is for the engine games, which render inside
+  // `Player`.
+  if (local) {
+    return <BuffaloCabinet uid={s.uid} game={local} />;
+  }
+
+  const name = route;
   const scene = sceneFor(name, 5);
 
   return (

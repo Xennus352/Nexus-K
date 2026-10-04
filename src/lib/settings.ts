@@ -25,7 +25,13 @@ export const SETTING_DEFS: readonly SettingDef[] = [
   { key: "site.name", group: "general", label: "Site name", type: "text", value: "Nexus-K" },
   { key: "site.support_email", group: "general", label: "Support email", type: "text", value: "support@nexus-k.test" },
   { key: "site.currency", group: "general", label: "Default currency", type: "text", value: "USD" },
-  { key: "site.maintenance", group: "general", label: "Maintenance mode", type: "bool", value: "0" },
+
+  // The kill switch. Read through `src/lib/maintenance.ts`, which bypasses the
+  // 30-second cache below on purpose — see the note there.
+  { key: "site.maintenance", group: "general", label: "Maintenance mode", type: "bool", value: "0",
+    help: "Locks every player out of the site and shows a maintenance notice. The back office stays reachable so you can turn it back off." },
+  { key: "site.maintenance_note", group: "general", label: "Maintenance notice", type: "textarea", value: "",
+    help: "Shown to players while maintenance is on. Left blank, they get a plain built-in message. Write no ETA you cannot keep." },
 
   { key: "deposit.min", group: "payment", label: "Minimum deposit", type: "number", value: "5" },
   { key: "deposit.max", group: "payment", label: "Maximum deposit", type: "number", value: "100000" },

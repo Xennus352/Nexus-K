@@ -9,21 +9,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import {
-  Activity,
-  ArrowLeft,
-  BarChart3,
-  CreditCard,
-  Gauge,
-  Gem,
-  IdCard,
-  Landmark,
-  LogOut,
-  ScrollText,
-  Settings,
-  Users,
-  Wallet,
-} from "lucide-react";
+import { Activity, ArrowLeft, BarChart3, CreditCard, Dices, Gauge, Gem, IdCard, Landmark, LogOut, ScrollText, Settings, Users, Wallet } from "lucide-react";
 import { adminLogout } from "@/server/admin-actions";
 import type { ReactNode } from "react";
 
@@ -50,6 +36,7 @@ const NAV: { group: string; items: NavItem[] }[] = [
     items: [
       { href: "/admin/gateways", label: "Payment rails", icon: Wallet },
       { href: "/admin/withdraw-methods", label: "Payout methods", icon: Landmark },
+      { href: "/admin/games", label: "Games", icon: Dices },
       { href: "/admin/settings", label: "Settings", icon: Settings },
     ],
   },

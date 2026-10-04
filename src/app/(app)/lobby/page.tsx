@@ -5,6 +5,7 @@ import { BOOT_COOKIE } from "@/lib/boot-flag";
 import { redirect } from "next/navigation";
 import GameCard from "@/components/GameCard";
 import LobbyBoot from "@/components/LobbyBoot";
+import { allFlags, buildLobby, matchesLobbyFilter, type EngineGame } from "@/lib/games";
 
 const ENGINE = process.env.SLOTOPOL_URL ?? "http://localhost:8080";
 
@@ -22,27 +23,23 @@ export default async function Lobby({
   if (!s) redirect("/?error=Login+required");
   const { q, prov } = await searchParams;
 
-  let games: GameInfo[] = [];
-  let providers: string[] = [];
+  let engineGames: EngineGame[] = [];
+  let engineError = false;
   try {
     const res = await fetch(`${ENGINE}/game/list?inc=all&exc=~all&sort=true`, {
       cache: "no-store",
     });
-    games = ((await res.json()).list ?? []).filter((g: GameInfo) => g.gt === 1);
-    providers = [...new Set(games.map((g) => g.prov))] as string[];
+    engineGames = ((await res.json()).list ?? [])
+      .filter((g: GameInfo) => g.gt === 1)
+      .map((g: GameInfo) => ({ prov: g.prov, name: g.name, sx: g.sx, sy: g.sy, rtp: g.rtp }));
   } catch {
-    return (
-      <p className="mt-10 text-rose-400">
-        Cannot reach the game engine at {ENGINE}. Is `./engine/slotopol web` running?
-      </p>
-    );
+    engineError = true;
   }
 
-  const filtered = games.filter(
-    (g) =>
-      (!q || `${g.prov} ${g.name}`.toLowerCase().includes(q.toLowerCase())) &&
-      (!prov || g.prov === prov)
-  );
+  // The operator's per-game on/off switches, applied to both catalogues at once.
+  const flags = await allFlags();
+  const { games: merged, providers } = buildLobby(engineGames, flags);
+  const filtered = merged.filter((g) => matchesLobbyFilter(g, q ?? "", prov ?? ""));
 
   // Asked here rather than inside `LobbyBoot`, which is the only way a warm lobby
   // can arrive unwrapped. See `src/lib/boot-flag.ts` for why this is a cookie and
@@ -72,6 +69,13 @@ export default async function Lobby({
         <button className="cursor-pointer rounded-xl bg-gradient-to-r from-blue-600 to-sky-500 px-5 py-2.5 font-bold">Filter</button>
       </form>
 
+      {engineError && (
+        <p className="mb-4 rounded-2xl border border-amber-300/30 bg-amber-400/10 p-4 text-sm text-amber-200">
+          The game engine is not answering right now, so the catalogue games cannot be listed.
+          The local games below still work.
+        </p>
+      )}
+
       {filtered.length === 0 ? (
         <p className="rounded-2xl border border-white/5 bg-[#35478a] p-6 text-sm text-slate-400">
           No games match that search.{" "}
@@ -83,7 +87,20 @@ export default async function Lobby({
       ) : (
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
           {filtered.map((g) => (
-            <GameCard key={`${g.prov}/${g.name}`} g={g} />
+            <GameCard
+              key={g.key}
+              g={{
+                prov: g.prov,
+                name: g.title,
+                sx: g.sx,
+                sy: g.sy,
+                rtp: g.rtp ? [g.rtp] : undefined,
+                cover: g.cover || undefined,
+                href: g.href,
+                maint: g.maint,
+                local: g.local,
+              }}
+            />
           ))}
         </div>
       )}

@@ -9,6 +9,14 @@ export type GameCardData = {
   sx: number;
   sy: number;
   rtp?: number[];
+  /** The local-game override: render this exact cover rather than the theme's coin. */
+  cover?: string;
+  /** Explicit href, for games that are not `PROV/NAME` inside /play. */
+  href?: string;
+  /** This game is suspended; link still opens, and says why. */
+  maint?: boolean;
+  /** Fallback href when it is just a name, for engine games. Kept raw for labels. */
+  local?: boolean;
 };
 
 function hash(s: string): number {
@@ -37,13 +45,13 @@ export default function GameCard({ g }: { g: GameCardData }) {
   const theme = themeFor(key);
   const assets = assetFor(key);
   const scene = sceneFor(key, g.sx);
-  const cover = assets.images[hash(key) % assets.images.length];
-  const alias = encodeURIComponent(key);
+  const cover = g.local ? g.cover : assets.images[hash(key) % assets.images.length];
+  const href = g.href ?? `/play/${encodeURIComponent(key)}`;
   return (
     <Link
-      href={`/play/${alias}`}
+      href={href}
       prefetch={false}
-      className="game-card group block overflow-hidden rounded-2xl border border-white/5 bg-[#35478a] transition hover:-translate-y-1"
+      className={`game-card group block overflow-hidden rounded-2xl border bg-[#35478a] transition hover:-translate-y-1 ${g.maint ? "border-amber-400/30" : "border-white/5"}`}
       style={{ boxShadow: `0 0 0 1px ${scene.rim}` }}
     >
       <div
@@ -103,8 +111,13 @@ export default function GameCard({ g }: { g: GameCardData }) {
           className="absolute right-2 top-2 rounded-md border px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-widest backdrop-blur-sm"
           style={{ borderColor: scene.rim, color: theme.accent, background: "rgba(3,6,14,0.55)" }}
         >
-          {PACK_LABEL[assets.kind]}
+          {g.local ? "NEXUS" : PACK_LABEL[assets.kind]}
         </span>
+        {g.maint && (
+          <span className="absolute left-2 top-2 rounded-md border border-amber-400/60 bg-black/60 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-widest text-amber-300 backdrop-blur-sm">
+            Maintenance
+          </span>
+        )}
       </div>
       <div className="p-3">
         <div className="truncate font-bold leading-tight">{g.name}</div>

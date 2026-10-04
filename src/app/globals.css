@@ -71,3 +71,20 @@ body {
   position: relative;
   z-index: 1;
 }
+
+/* Buffalo reel "stop": each symbol drops into place as the spin settles.
+ * A single transform keyframe, no GSAP, because the answer — and therefore the
+ * grid it is animating in — only exists for one render. */
+.spin-drop {
+  animation: nk-spin-drop 220ms ease-out;
+}
+@keyframes nk-spin-drop {
+  from {
+    transform: translateY(-14px) scale(0.92);
+    opacity: 0.4;
+  }
+  to {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+}

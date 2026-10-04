@@ -492,7 +492,7 @@ async function main() {
   const depositsPage = await html("/admin/deposits", adminHeader);
   check("pending deposit appears in the back office", depositsPage.includes(trx), true);
 
-  const approveAction = findActionId(depositsPage, "Approve");
+  const approveAction = findActionId(depositsPage, "Accept &amp; credit");
   if (!approveAction) throw new Error("no approve form on /admin/deposits — the action is not wired");
   const approveId = formField(depositsPage, approveAction, "id");
   check("approve form targets the deposit", approveId.length > 0, true);
@@ -597,7 +597,7 @@ async function main() {
   // malformed action and leave the coins reserved, which the ledger check would
   // then report as a mystery 100-coin discrepancy.
   const kPage = await html("/admin/withdrawals", adminHeader);
-  const kCancel = findActionId(kPage, "Cancel");
+  const kCancel = findActionId(kPage, "Reject &amp; refund");
   if (!kCancel) throw new Error("no cancel form on /admin/withdrawals — cannot clean up the KPay request");
   const beforeKCancel = await wallet();
   const kCancelled = await api("/admin/withdrawals", {
@@ -610,7 +610,7 @@ async function main() {
   /* ------------------------------------------------------ admin cancels it */
   const wdlPage = await html("/admin/withdrawals", adminHeader);
   check("pending withdrawal appears in the back office", wdlPage.includes(wtrx), true);
-  const cancelAction = findActionId(wdlPage, "Cancel");
+  const cancelAction = findActionId(wdlPage, "Reject &amp; refund");
   if (!cancelAction) throw new Error("no cancel form on /admin/withdrawals — the action is not wired");
   const cancelId = formField(wdlPage, cancelAction, "id");
 

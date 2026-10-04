@@ -723,6 +723,43 @@ export async function toggleGateway(form: FormData) {
   done("/admin/gateways", `${gateway.name} ${enable ? "enabled" : "disabled"}.`);
 }
 
+/* ----------------------------------------------------------------- games */
+
+/**
+ * Upserts an operator's override for one game. Every game shows on /admin/games with
+ * its controls filled in from whatever row exists — or with the defaults (visible,
+ * not suspended, no note) when it does not — so this is the one save per row and it
+ * creates the sparse row on first touch rather than needing a separate seed.
+ */
+export async function saveGameFlagAction(form: FormData) {
+  await superadminOnly("/admin/games");
+
+  const alias = field(form, "alias", 120);
+  if (!alias) fail("/admin/games", "Missing game.");
+
+  const visible = bool(form, "visible");
+  const maint = bool(form, "maint");
+  const note = field(form, "note", 200);
+  const maintNote = field(form, "maintNote", 500);
+  const sort = num(form, "sort", 0);
+
+  await prisma.gameFlag.upsert({
+    where: { alias },
+    update: { visible, maint, note, maintNote, sort },
+    create: { alias, visible, maint, note, maintNote, sort },
+  });
+  done("/admin/games", `${alias}: ${visible ? "visible" : "hidden"}${maint ? ", under maintenance" : ""}.`);
+}
+
+/** Drops the override row entirely, returning the game to the "open" default. */
+export async function clearGameFlagAction(form: FormData) {
+  await superadminOnly("/admin/games");
+  const alias = field(form, "alias", 120);
+  if (!alias) fail("/admin/games", "Missing game.");
+  await prisma.gameFlag.deleteMany({ where: { alias } });
+  done("/admin/games", `${alias} reset to default.`);
+}
+
 /* -------------------------------------------------------- withdraw methods */
 
 export async function saveWithdrawMethod(form: FormData) {
