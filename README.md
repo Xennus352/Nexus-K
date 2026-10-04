@@ -19,9 +19,31 @@ Inspired by these open-source projects:
   context drives it all and collapses to a static frame under `prefers-reduced-motion`.
 - Lobby and slot machine with GSAP reels, streamed game data and pooled sound effects.
 - **Wallet**: live balance, deposit/withdraw totals, transaction ledger, referral code, KYC submission.
+
+### The game screen
+
+- **Reels clip.** `.play-cell` carries `overflow: hidden` and `isolation: isolate`, and the settled
+  symbol sits in `.cell-sym` above the roll layer. Without those, the roll layer's `y:-16` per step and
+  `y:-22 scale 1.2` landing tween painted over the cell above — the "sticky/overlapping symbols" report.
+  Measured, not assumed: with the roll held at its extreme frame, unclipped rendering differs from
+  clipped across ~7,400 px spanning all four rows of a column, against ~200 px of background noise.
+- **The console buttons are drawn in CSS.** `ConsoleButton.tsx` layers gradients, a bevel, a tinted
+  glow, a press shadow and a specular sweep — no images, so they stay crisp at any DPI and cost no
+  request. `cursor-pointer` throughout, and a disabled button reads as disabled rather than dead.
+- **The bet controls are `MIN` / `MAX` / `AUTO` / `SPIN` / history.** `MIN` drops to the smallest
+  playable bet rather than zero, which the engine rejects.
+- **The balance moves in realtime.** `src/server/realtime.ts` relays the value the caller already has
+  over a `BroadcastChannel` plus a parallel `localStorage` write — no polling, no WebSocket, nothing to
+  keep alive. Messages are tagged with the uid so two accounts in one browser cannot cross-contaminate,
+  and `CountUp` tweens between values and flashes the direction, honouring `prefers-reduced-motion`.
+- **The background is the game's own art** (`scene.cabinet`, resolved per alias) with a darkening radial
+  scrim, rather than flat black.
 - **Deposit**: per-rail fees, limits and currency lists, a checkout per driver, an instructions page
-  for manual rails, and a status endpoint the detail page polls.
-- **Withdraw**: per-method payout fields, fee split, turnover rule, optional KYC gate, reserve-on-request.
+  for manual rails, and a status endpoint the detail page polls. Manual rails must attach the transfer
+  screenshot — see [Proving a deposit](#proving-a-deposit).
+- **Withdraw**: per-method payout fields (amount plus a KPay/Wave number, a bank account, a wallet
+  address…), fee split, turnover rule, optional KYC gate, reserve-on-request. Every request and every
+  deposit proof lands in Telegram — see [Money alerts](#money-alerts).
 - **Bonuses**: daily bonus (once per day), welcome bonus, referral bonuses, deposit bonuses.
 - **Support**: ticket list, new ticket, threaded replies, and an optional Telegram channel.
 
@@ -101,6 +123,58 @@ The token is read from the environment only — never stored in the database, ne
 the browser. Nothing in `src/lib/telegram.ts` throws: Telegram is a convenience channel, so an outage
 degrades to "the button is not rendered", not to a failed ticket submission.
 
+### Money alerts
+
+Support tickets are one kind of message; money moving is another. Deposits and withdrawals alert a
+**separate** list, because they want a different pair of eyes: a casino's payout number is not
+something to read in the same channel as player chat.
+
+- `/admin/settings` → **Money alerts (payment group)** holds the chat ids. Blank falls back to
+  `5458464856,6629148549`, so alerts work before anyone visits the settings page. At most eight ids,
+  digits only.
+- A **withdrawal** alert quotes the reference, the player, the coins, the cash the operator actually has
+  to send, the fee, the rail, and every payout field verbatim — including the KPay or Wave number. An
+  alert missing the number is worse than no alert, so it is rendered from the stored `account` JSON
+  rather than reconstructed.
+- A **deposit** alert carries the screenshot itself, so the operator can read the statement without
+  opening a back office. If the photo fails to send anywhere, a text-only alert is sent instead, so a
+  transfer is never silently unannounced.
+- Alerts are **fire-and-forget**. The coins are already reserved and the row is already written, so a
+  Telegram outage degrades to "open `/admin/withdrawals` to see it" rather than to a failed payout.
+- Fan-out is sequential, not parallel. Ten players withdrawing at once would otherwise hit the Bot
+  API's per-chat rate limit and lose the tail of the burst.
+- Player-supplied text — usernames, gateway names, payout field labels — goes through `safe()` in
+  `src/server/money-alerts.ts`, which collapses newlines and caps length. A player who registers with a
+  display name containing a fake 🚨 banner cannot forge an operator message to the next reader.
+
+### Proving a deposit
+
+Manual rails are a promise from the player that money moved, so `/api/payments/checkout` requires a
+screenshot for them and a screenshot alone is not enough — it is the only thing linking an amount to a
+bank line.
+
+- **The player must attach the image.** The file picker previews what was chosen, and the submit button
+  stays disabled until there is one. There is no "submit without a screenshot" path for a manual rail.
+- **The receiving number is a setting, not a seed value.** The casino's real KPay number is an operator
+  decision, and a placeholder in a rail is worse than an empty one: a player would copy the placeholder
+  and send real money to nobody. `deposit.receive_phone` and `deposit.receive_name` are read at render
+  time (`fillPhoneRails` in `src/lib/gateways.ts`), so one edit in one screen changes every place the
+  number appears. A rail with its own non-blank value keeps it, which is what lets a generic "Bank
+  Account" rail carry its own details. **While the setting is empty the page says so in amber and the
+  Copy button is not rendered** — copying an empty string reads as success and transfers nothing.
+- **The content type is sniffed, never trusted.** `File.type` is client-supplied, so `src/lib/slips.ts`
+  checks magic bytes and the stored extension comes from the sniffed type. A `.html` file renamed to
+  `.png` and *declared* `image/png` is rejected.
+- **Limits live in one module** (`MAX_SLIP_BYTES` = 5 MB, `MIN_SLIP_BYTES` = 64, image types only) so
+  the browser and the server enforce identical numbers instead of drifting apart.
+- **Slips are private.** Files are stored under `var/uploads/` (git-ignored, never `public/`) under a
+  generated `<base36>-<32 hex>.<ext>` name, and served only by `/api/admin/slip/[trx]`, which checks
+  an **admin** session — not the player's, so the player who uploaded it cannot read it back. The
+  response is `no-store` + `nosniff` behind a CSP sandbox, and the filename is re-validated against a
+  regex before any filesystem call.
+- If the provider throws after the slip is written, the deposit row is rolled back and the file is
+  deleted, so a failed checkout does not leave an orphan.
+
 ## Art
 
 Every cabinet's art is derived from a pack, keyed off the game's name in `src/lib/theme.ts`. Packs are
@@ -167,6 +241,9 @@ drivers — `manual`, `stripe`, `paypal`, `nowpayments`. The rest are seeded as 
 switch them on once credentials are entered, but a rail only appears on the deposit page when its
 driver reports itself configured, so an unconfigured rail can never be chosen by a player.
 
+KPay and Wave are seeded on both sides of the app: as manual deposit rails whose receiving number comes
+from settings, and as MMK payout methods asking for an account name plus a wallet number.
+
 ## Setup
 
 ```bash
@@ -181,6 +258,20 @@ cd ..
 pnpm db:seed                  # settings, payment rails, payout methods, first admin
 pnpm dev
 ```
+
+Two things are deliberately **not** in `.env`, because they are operator data rather than
+configuration, and belong in the database where the back office can edit them:
+
+- `deposit.receive_phone` / `deposit.receive_name` — the KPay/Wave number players transfer to. Set them
+  at `/admin/settings` → **Payment**. Until they are set, the deposit page shows an amber "not
+  configured yet" instead of a number, which is the safe failure: a wrong number loses money, a blank
+  one loses nothing. `pnpm db:seed` does not fill them in — it never overwrites a setting you already
+  have, so a value entered once survives every later seed.
+- `money.telegram_chats` — the chat ids that receive deposit and withdrawal alerts. Blank falls back to
+  `5458464856,6629148549`.
+
+`TELEGRAM_BOT_TOKEN` is also required for alerts, but not for the back office: with no token the money
+flows still work and the alerts simply do not go anywhere.
 
 `engine/` contains a Go build of [slotopol/server](https://github.com/slotopol/server) — the real game
 math for ~350 slot games (Novomatic, NetEnt, CT Interactive and more). The Next.js UI talks to it
@@ -234,6 +325,14 @@ creates throwaway players, so they are safe to re-run.
   rejects the old one, the 6-character floor, and a bulk run asserting that the confirmation box is
   required, that the generated password in the CSV actually signs in, and that a guessed report token
   renders the expiry notice rather than a sheet.
+
+  The deposit proof and slip privacy are covered here too, because they are the checks most likely to
+  rot silently: a manual deposit with no screenshot is refused, a text file renamed to `.png` and
+  declared `image/png` is refused by magic bytes and leaves no row behind, a real PNG is stored under a
+  generated name with the sniffed type, and `/api/admin/slip/[trx]` returns 401 without a cookie, 401 to
+  the player who uploaded it, the exact uploaded bytes to an admin, and 404 for a slip that never
+  existed. A KPay withdrawal is driven through to a full refund, asserting the number and account name
+  land on the row — those are what the Telegram alert quotes.
 
   It mints both cookies **before** any request goes out. The mint spawns `tsx`, which blocks the event
   loop; a keep-alive socket opened before that goes stale and the next request dies mid-body with

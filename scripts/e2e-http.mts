@@ -37,12 +37,25 @@ function check(label: string, actual: unknown, expected: unknown) {
 /** Full `Cookie` header values — the name is part of the credential. */
 const session = { cookie: "", engineUid: 0, userId: "" };
 
+type FilePart = { field: string; name: string; type: string; bytes: Buffer };
+
 async function api(
   path: string,
-  init: { method?: string; form?: Record<string, string>; cookie?: string } = {},
+  init: {
+    method?: string;
+    form?: Record<string, string>;
+    /** Multipart file parts — the deposit slip, in practice. */
+    files?: FilePart[];
+    cookie?: string;
+  } = {},
 ): Promise<{ status: number; json: Record<string, unknown>; location: string }> {
-  const body = init.form ? new FormData() : undefined;
+  const body = init.form || init.files ? new FormData() : undefined;
   if (init.form) for (const [k, v] of Object.entries(init.form)) body!.set(k, v);
+  if (init.files) {
+    for (const f of init.files) {
+      body!.set(f.field, new Blob([new Uint8Array(f.bytes)], { type: f.type }), f.name);
+    }
+  }
   const res = await fetch(`${APP}${path}`, {
     method: init.method ?? (body ? "POST" : "GET"),
     body,
@@ -58,6 +71,18 @@ async function api(
   }
   return { status: res.status, json, location: res.headers.get("location") ?? "" };
 }
+
+/** Raw GET returning bytes and headers, for the slip route. */
+async function slipFetch(path: string, cookie: string) {
+  const res = await fetch(`${APP}${path}`, { headers: { cookie } });
+  return { status: res.status, bytes: Buffer.from(await res.arrayBuffer()), type: res.headers.get("content-type") ?? "" };
+}
+
+/** A real 1x1 PNG. 68 bytes — over the minimum, and genuinely decodable. */
+const PNG_1PX = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+  "base64",
+);
 
 async function html(path: string, cookie: string): Promise<string> {
   const res = await fetch(`${APP}${path}`, { headers: { cookie } });
@@ -370,14 +395,78 @@ async function main() {
   const depPage = await html("/deposit", session.cookie);
   check("deposit page lists the manual rail", depPage.includes("Manual"), true);
 
+  /* ---------------------------------------------------- the transfer proof */
+  const pendingBefore = await prisma.deposit.count({
+    where: { gatewayId: manual.id, status: "pending" },
+  });
+
+  // A manual deposit without a screenshot would leave an operator with an amount
+  // and no way to match it, so the slip is mandatory rather than optional.
+  const noSlip = await api("/api/payments/checkout", {
+    form: { gatewayId: manual.id, amount: "40", currency: "USD" },
+  });
+  check("manual deposit without a screenshot is refused", noSlip.status, 400);
+
+  // `File.type` is client-supplied, so the server sniffs magic bytes instead. A
+  // text file renamed to .png and *declared* as image/png is the attack this
+  // replaces: accepting it would store a file an operator later opens as an image.
+  const disguised = await api("/api/payments/checkout", {
+    form: { gatewayId: manual.id, amount: "40", currency: "USD" },
+    files: [
+      {
+        field: "slip",
+        name: "slip.png",
+        type: "image/png",
+        bytes: Buffer.from("<html><body>defaced</body></html>".padEnd(200, " ")),
+      },
+    ],
+  });
+  check("a non-image renamed to .png is refused", disguised.status, 400);
+  // Counted rather than asserted to be zero: this database is shared with earlier
+  // runs, so what matters is that the rejected upload left nothing *new* behind.
+  check(
+    "no deposit row survives a rejected slip",
+    await prisma.deposit.count({ where: { gatewayId: manual.id, status: "pending" } }),
+    pendingBefore,
+  );
+
   const checkout = await api("/api/payments/checkout", {
     form: { gatewayId: manual.id, amount: "40", currency: "USD" },
+    files: [{ field: "slip", name: "transfer.png", type: "image/png", bytes: PNG_1PX }],
   });
   check("checkout succeeds", checkout.status, 200);
   const trx = String(checkout.json.trx ?? "");
   check("checkout quotes the coins it will credit", checkout.json.coins, 40);
   check("manual rail sends the player to the instructions page", checkout.json.redirect, `/deposit/${trx}`);
   check("instructions page renders", (await api(`/deposit/${trx}`)).status, 200);
+
+  /* --------------------------------------------------------- the slip itself */
+  const depRow = await prisma.deposit.findUnique({ where: { trx } });
+  check("the stored name is generated, not the player's", depRow?.slipName, "transfer.png");
+  check(
+    "the stored filename is opaque",
+    /^[0-9a-z]+-[0-9a-f]{32}\.png$/.test(depRow?.slipPath ?? ""),
+    true,
+  );
+  check("the content type was sniffed, not trusted", depRow?.slipType, "image/png");
+
+  // A slip is a bank statement. It must not be reachable by a player, by an
+  // anonymous caller, or by a URL — which is why it lives outside public/.
+  const slipUrl = `/api/admin/slip/${encodeURIComponent(trx)}`;
+  check("slip is refused without a session", (await slipFetch(slipUrl, "")).status, 401);
+  check("slip is refused to the player who uploaded it", (await slipFetch(slipUrl, session.cookie)).status, 401);
+  const asAdmin = await slipFetch(slipUrl, adminHeader);
+  check("slip is served to the back office", asAdmin.status, 200);
+  check("the served slip is the uploaded bytes, unmodified", asAdmin.bytes.equals(PNG_1PX), true);
+  check("the served slip is typed as an image", asAdmin.type, "image/png");
+  check(
+    "a slip that was never uploaded is a 404, not a 500",
+    (await slipFetch("/api/admin/slip/NOPE123", adminHeader)).status,
+    404,
+  );
+
+  const slipPage = await html(`/deposit/${trx}`, session.cookie);
+  check("the player sees that their screenshot is with the operator", slipPage.includes("screenshot is with the operator"), true);
 
   /* ------------------------------------------------------- admin approves it */
   const depositsPage = await html("/admin/deposits", adminHeader);
@@ -448,6 +537,55 @@ async function main() {
 
   const history = await html("/withdraw/history", session.cookie);
   check("withdrawal shows in player history", wtrx !== "" && history.includes(wtrx), true);
+
+  /* -------------------------------------------------- a KPay / Wave payout */
+  // The rail most of this audience actually cashes out on: amount plus a wallet
+  // number. It goes through the same route, so what is checked is that the
+  // per-method fields land on the row — those are what the Telegram alert quotes,
+  // and an alert missing the number is worse than no alert.
+  const kpay = await prisma.withdrawMethod.findFirst({ where: { code: "kpay", status: true } });
+  if (!kpay) throw new Error("no enabled KPay payout method — run pnpm db:seed");
+  const kFields = JSON.parse(kpay.fields) as { key: string; label: string; optional?: boolean }[];
+  check("KPay asks for an account name and a number", kFields.map((f) => f.key), ["accountName", "walletId"]);
+
+  const kpayForm = await html("/withdraw", session.cookie);
+  check("the withdraw page offers KPay", kpayForm.includes("KPay"), true);
+
+  const walletNumber = "09" + String(Date.now()).slice(-7);
+  const missingNumber = await api("/api/withdrawals", {
+    form: { methodId: kpay.id, amount: "100", accountName: "Test Player", walletId: "" },
+  });
+  check("a KPay withdrawal without a number is refused", missingNumber.status, 400);
+
+  const kRes = await api("/api/withdrawals", {
+    form: { methodId: kpay.id, amount: "100", accountName: "Test Player", walletId: walletNumber },
+  });
+  check("KPay withdrawal succeeds", kRes.status, 200);
+  const ktrx = String(kRes.json.trx ?? "");
+  const kRow = await prisma.withdrawal.findUnique({
+    where: { trx: ktrx },
+    include: { method: { select: { name: true } } },
+  });
+  const kDetails = JSON.parse(kRow?.account ?? "{}") as Record<string, string>;
+  check("the KPay number is stored on the request", kDetails.walletId, walletNumber);
+  check("the account name is stored on the request", kDetails.accountName, "Test Player");
+  check("the payout rail is recorded", kRow?.method.name, "KPay");
+
+  // Cancelled so the ledger assertion below still balances: this extra reservation
+  // is not part of the deposit/refund pair it expects. The cancel form is looked up
+  // and required, rather than best-effort — a silent failure here would post a
+  // malformed action and leave the coins reserved, which the ledger check would
+  // then report as a mystery 100-coin discrepancy.
+  const kPage = await html("/admin/withdrawals", adminHeader);
+  const kCancel = findActionId(kPage, "Cancel");
+  if (!kCancel) throw new Error("no cancel form on /admin/withdrawals — cannot clean up the KPay request");
+  const beforeKCancel = await wallet();
+  const kCancelled = await api("/admin/withdrawals", {
+    form: { [kCancel]: "", id: kRow!.id, adminNote: "e2e cleanup" },
+    cookie: adminHeader,
+  });
+  check("the KPay request is fully refunded on cancel", kCancelled.status, 303);
+  check("the KPay reservation went back to the wallet", await wallet(), beforeKCancel + 100);
 
   /* ------------------------------------------------------ admin cancels it */
   const wdlPage = await html("/admin/withdrawals", adminHeader);
