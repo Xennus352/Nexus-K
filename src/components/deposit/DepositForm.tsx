@@ -1,7 +1,8 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { AlertTriangle, ImagePlus, X } from "lucide-react";
 import { Button, Field, Notice, inputClass } from "@/components/ui";
 import CopyButton from "@/components/CopyButton";
 import { MAX_SLIP_BYTES, MAX_SLIP_MB, isSlipMime } from "@/lib/slips";
@@ -55,6 +56,116 @@ function Logo({ gateway, className = "h-9 w-9" }: { gateway: GatewayChoice; clas
   );
 }
 
+/**
+ * The screenshot picker.
+ *
+ * The native `<input type="file">` was hidden behind a styled label, which left
+ * the browser's own "Choose File / No file chosen" text visible next to it — the
+ * one piece of the control nobody can style, and on this form it sat directly
+ * above the submit button the player has to press anyway.
+ *
+ * The input is kept, visually hidden and still the real control, so keyboard
+ * focus, the OS file dialog and form semantics are unchanged. Everything the
+ * player touches is a button that opens it.
+ */
+function SlipPicker({
+  file,
+  preview,
+  error,
+  onPick,
+  onClear,
+}: {
+  file: File | null;
+  /** Object URL for `file`, or null when there is nothing to show yet. */
+  preview: string | null;
+  error: string;
+  onPick: (f: File | null) => void;
+  onClear: () => void;
+}) {
+  const input = useRef<HTMLInputElement>(null);
+
+  function onChange(e: React.ChangeEvent<HTMLInputElement>) {
+    onPick(e.target.files?.[0] ?? null);
+  }
+
+  return (
+    <div className="space-y-2">
+      <input
+        ref={input}
+        type="file"
+        accept="image/png,image/jpeg,image/webp,image/gif"
+        onChange={onChange}
+        // Hidden from sight and from the tab order: the button below is the
+        // affordance and is what focus lands on instead.
+        className="sr-only"
+        data-testid="slip-input"
+      />
+
+      {file ? (
+        <div className="flex items-center gap-3 rounded-2xl border border-emerald-500/30 bg-emerald-950/20 p-3">
+          {preview ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={preview}
+              alt="Selected transfer screenshot"
+              className="h-16 w-16 shrink-0 rounded-xl border border-white/10 object-cover"
+            />
+          ) : (
+            <span
+              aria-hidden
+              className="flex h-16 w-16 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-black/30 text-slate-600"
+            >
+              <ImagePlus className="h-6 w-6" />
+            </span>
+          )}
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-xs font-semibold text-slate-100">{file.name}</div>
+            <div className="text-[11px] text-emerald-300">
+              {(file.size / 1024).toFixed(0)} KB · ready to send
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClear}
+            data-testid="slip-clear"
+            className="flex shrink-0 cursor-pointer items-center gap-1 rounded-lg border border-white/10 px-3 py-1.5 text-xs font-semibold text-slate-300 transition hover:bg-white/10"
+          >
+            <X className="h-3.5 w-3.5" /> Change
+          </button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => input.current?.click()}
+          data-testid="slip-dropzone"
+          className={`group flex w-full cursor-pointer flex-col items-center gap-2 rounded-2xl border-2 border-dashed px-4 py-7 text-center transition ${
+            error
+              ? "border-rose-400/60 bg-rose-950/20"
+              : "border-white/15 bg-black/20 hover:border-sky-400/60 hover:bg-sky-500/5"
+          }`}
+        >
+          <span className="flex h-12 w-12 items-center justify-center rounded-full bg-sky-500/15 text-sky-300 transition group-hover:scale-110 group-hover:bg-sky-500/25">
+            <ImagePlus className="h-6 w-6" />
+          </span>
+          <span className="text-sm font-bold text-slate-100">
+            Tap to choose your screenshot
+          </span>
+          <span className="text-[11px] text-slate-400">
+            PNG, JPEG, WebP or GIF · up to {MAX_MB} MB
+          </span>
+        </button>
+      )}
+
+      {error && (
+        <p role="alert" className="flex items-center gap-1.5 text-xs font-semibold text-rose-300">
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
 export default function DepositForm({
   gateways,
   min,
@@ -79,7 +190,29 @@ export default function DepositForm({
   const [error, setError] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [fileError, setFileError] = useState("");
-  const fileInput = useRef<HTMLInputElement>(null);
+
+  /**
+   * The preview URL, alongside the file it was made from.
+   *
+   * Created in `chooseFile` rather than derived in an effect. An effect version
+   * renders once with no preview and again with one, and its cleanup revokes the
+   * *previous* URL after React has already committed the new one — so which URL is
+   * live becomes two pieces of state that can disagree. Here it is one value,
+   * replaced and revoked in the same step.
+   *
+   * The URL is pinned in a ref because the revoke on unmount happens in an effect
+   * that cannot read fresh state; a player who attaches several screenshots
+   * would otherwise leak every one of them for the life of the tab, and a 5 MB
+   * photo times a few attempts is enough to matter on a phone.
+   */
+  const [preview, setPreview] = useState<string | null>(null);
+  const previewUrl = useRef<string | null>(null);
+  useEffect(
+    () => () => {
+      if (previewUrl.current) URL.revokeObjectURL(previewUrl.current);
+    },
+    [],
+  );
 
   const railMin = Math.max(min, selected?.minAmount ?? min);
   const railMax = Math.min(max, selected?.maxAmount ?? max);
@@ -87,25 +220,41 @@ export default function DepositForm({
   // it is the only case where a screenshot is the evidence.
   const manual = selected?.driver === "manual";
 
+  /** Drops the current file and releases its preview. */
+  function clearFile() {
+    if (previewUrl.current) {
+      URL.revokeObjectURL(previewUrl.current);
+      previewUrl.current = null;
+    }
+    setFile(null);
+    setPreview(null);
+  }
+
   function chooseFile(next: File | null) {
     setFileError("");
     if (!next) {
-      setFile(null);
+      clearFile();
       return;
     }
     // The server sniffs magic bytes regardless; this is here so a player finds out
     // from a wrong file rather than after uploading several megabytes of it.
     if (!isSlipMime(next.type)) {
-      setFile(null);
+      clearFile();
       setFileError("That file is not a PNG, JPEG, WebP or GIF image.");
       return;
     }
     if (next.size > MAX_SLIP_BYTES) {
-      setFile(null);
+      clearFile();
       setFileError(`Screenshot must be under ${MAX_MB} MB.`);
       return;
     }
+    // Release the previous preview before replacing it, or every rejected pick
+    // leaks the one it discarded.
+    if (previewUrl.current) URL.revokeObjectURL(previewUrl.current);
+    const url = URL.createObjectURL(next);
+    previewUrl.current = url;
     setFile(next);
+    setPreview(url);
   }
 
   async function submit(e: React.FormEvent) {
@@ -144,7 +293,7 @@ export default function DepositForm({
   if (gateways.length === 0) {
     return (
       <Notice tone="info">
-        No payment method is available yet. Please contact support.
+        No payment method is available yet. Please check back shortly.
       </Notice>
     );
   }
@@ -158,7 +307,7 @@ export default function DepositForm({
         <span className="mb-2 block text-xs font-semibold tracking-wide text-slate-300">
           PAYMENT METHOD
         </span>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        <div className="grid gap-3 sm:grid-cols-2">
           {gateways.map((g) => {
             const active = g.id === selectedId;
             return (
@@ -170,19 +319,32 @@ export default function DepositForm({
                   if (!g.currencies.includes(currency)) setCurrency(g.currencies[0] ?? g.currency);
                 }}
                 aria-pressed={active}
-                className={`flex flex-col items-center gap-2 rounded-2xl border p-3 text-center transition ${
+                data-testid={`rail-${g.alias}`}
+                className={`group flex cursor-pointer items-center gap-3 rounded-2xl border p-3 text-left transition ${
                   active
                     ? "border-sky-400 bg-sky-500/10 shadow-[0_0_20px_rgba(56,189,248,0.25)]"
-                    : "border-white/10 bg-[#2b3a6e] hover:border-white/25"
+                    : "border-white/10 bg-[#2b3a6e] hover:-translate-y-0.5 hover:border-white/25"
                 }`}
               >
-                <Logo gateway={g} />
-                <span className="text-xs font-semibold leading-tight">{g.name}</span>
-                {g.crypto && (
-                  <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-[9px] font-bold text-amber-300">
-                    CRYPTO
+                {/* Wide box: the rail marks are 320x96 wordmarks, and a square
+                    thumbnail shrinks a wordmark to an unreadable smudge. */}
+                <Logo gateway={g} className="h-10 w-20" />
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-bold leading-tight">{g.name}</span>
+                  <span className="block text-[11px] text-slate-400">
+                    {g.crypto ? "Cryptocurrency" : `${g.currency} · manual transfer`}
                   </span>
-                )}
+                </span>
+                {/* A radio, drawn: the field is a button, so the selected state has
+                    to be visible somewhere other than the border colour. */}
+                <span
+                  aria-hidden
+                  className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition ${
+                    active ? "border-sky-400" : "border-white/25 group-hover:border-white/50"
+                  }`}
+                >
+                  {active && <span className="h-2.5 w-2.5 rounded-full bg-sky-400" />}
+                </span>
               </button>
             );
           })}
@@ -231,11 +393,12 @@ export default function DepositForm({
           fewest abandoned transfers. */}
       {manual && selected && selected.rails.length > 0 && (
         <div className="rounded-2xl border border-emerald-500/25 bg-emerald-950/15 p-4">
-          <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-300">
+          <div className="mb-1 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.18em] text-emerald-300">
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />
             Transfer to
           </div>
           <p className="mb-3 text-xs text-slate-400">
-            Send the amount above to one of these, then attach the screenshot below.
+            Send the amount above to this number, then attach the screenshot below.
           </p>
           <ul className="space-y-2">
             {selected.rails.map((rail, i) => (
@@ -245,19 +408,27 @@ export default function DepositForm({
               >
                 {rail.art && (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={rail.art} alt="" aria-hidden className="h-9 w-9 shrink-0 rounded object-contain" />
+                  <img
+                    src={rail.art}
+                    alt=""
+                    aria-hidden
+                    className="h-9 w-16 shrink-0 rounded-md bg-white/95 object-contain"
+                  />
                 )}
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <div className="text-[10px] uppercase tracking-widest text-slate-400">
                     {rail.label}
                   </div>
                   {/* break-all, not truncate: a phone number is the one value here
                       that must never be cut off, or the copy button copies a
                       fragment of it. */}
-                  <div className="break-all font-mono text-sm font-semibold text-slate-100">
+                  <div
+                    data-testid="rail-number"
+                    className="break-all font-mono text-lg font-bold tracking-wide text-slate-100"
+                  >
                     {rail.value.trim() === "" ? (
-                      <span className="font-sans font-semibold text-amber-300">
-                        Not configured yet — please contact support.
+                      <span className="font-sans text-sm font-semibold text-amber-300">
+                        Not configured yet — please check back shortly.
                       </span>
                     ) : (
                       rail.value
@@ -287,45 +458,22 @@ export default function DepositForm({
       {manual && (
         <Field
           label="TRANSFER SCREENSHOT"
-          hint={`PNG, JPEG, WebP or GIF, up to ${MAX_MB} MB. An operator cannot match your transfer without it.`}
+          hint="An operator cannot match your transfer to your deposit without it."
         >
-          <div className="space-y-2">
-            <input
-              ref={fileInput}
-              type="file"
-              accept="image/png,image/jpeg,image/webp,image/gif"
-              onChange={(e) => chooseFile(e.target.files?.[0] ?? null)}
-              className="block w-full cursor-pointer text-xs text-slate-400 file:mr-3 file:cursor-pointer file:rounded-lg file:border-0 file:bg-sky-500/15 file:px-4 file:py-2.5 file:text-sm file:font-bold file:text-sky-200 transition hover:file:bg-sky-500/25"
-            />
-            {file && (
-              <div className="flex items-center gap-3 rounded-xl border border-white/10 bg-[#2b3a6e] p-3">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={URL.createObjectURL(file)}
-                  alt="Selected transfer screenshot"
-                  onLoad={(e) => URL.revokeObjectURL(e.currentTarget.src)}
-                  className="h-16 w-16 shrink-0 rounded-lg border border-white/10 object-cover"
-                />
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-xs text-slate-200">{file.name}</div>
-                  <div className="text-[11px] text-slate-500">
-                    {(file.size / 1024).toFixed(0)} KB
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setFile(null);
-                    if (fileInput.current) fileInput.current.value = "";
-                  }}
-                  className="shrink-0 rounded-lg border border-white/10 px-3 py-1.5 text-xs font-semibold text-slate-300 transition hover:bg-white/10"
-                >
-                  Remove
-                </button>
-              </div>
-            )}
-            {fileError && <p className="text-xs font-semibold text-rose-300">{fileError}</p>}
-          </div>
+          <SlipPicker
+            file={file}
+            preview={preview}
+            error={fileError}
+            onPick={chooseFile}
+            onClear={() => {
+              clearFile();
+              setFileError("");
+              // Cleared so re-picking the *same* file still fires a change event;
+              // otherwise the input keeps its value and onChange never runs again.
+              const el = document.querySelector<HTMLInputElement>('[data-testid="slip-input"]');
+              if (el) el.value = "";
+            }}
+          />
         </Field>
       )}
 

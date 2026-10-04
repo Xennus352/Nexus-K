@@ -93,11 +93,28 @@ export async function playerGateways(): Promise<GatewayOption[]> {
     where: { status: true },
     orderBy: [{ sort: "asc" }, { name: "asc" }],
   });
-  const projected = rows.map(project).filter((g) => g.configured);
+  const projected = rows
+    .map(project)
+    .filter((g) => g.configured && (PLAYER_RAILS as readonly string[]).includes(g.alias));
   // One settings read for every rail, not one per rail.
   const [phone, holder] = await receivingDetails();
   return projected.map((g) => ({ ...g, rails: fillPhoneRails(g.rails, phone, holder) }));
 }
+
+/**
+ * The only rails the deposit page offers.
+ *
+ * This casino takes its deposits over mobile money transfer and nothing else.
+ * Offering a Stripe or PayPal tile that is not actually going to be paid into
+ * costs more than it earns: the player completes a checkout the operator then has
+ * to reconcile by hand, or — worse — the rail is switched off by an operator
+ * without noticing and the tile takes them to a dead checkout.
+ *
+ * The rest of the catalogue is untouched and still fully editable at
+ * `/admin/gateways`, so turning KPay back into a Stripe Checkout is a rename and
+ * a driver change, not a code change.
+ */
+export const PLAYER_RAILS = ["KPay", "Wave"] as const;
 
 /**
  * The KPay/Wave receiving number and account name.
