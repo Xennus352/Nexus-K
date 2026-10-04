@@ -1,32 +1,23 @@
-// Telegram bridge for support and money movement.
+// Telegram bridge for money movement.
 //
-// Three directions:
-//
-//   out  — a player opens `https://t.me/<bot>?start=<payload>` straight from the
-//          support pages, so the deep link carries the ticket number and the
-//          operator knows who is talking without asking.
-//   in   — new tickets and operator replies are pushed to the operator's chat.
-//   money — deposit and withdrawal alerts, plus the transfer screenshot a player
-//          attaches to a manual deposit, fan out to a separate list of chats.
+// One direction: deposit and withdrawal alerts, plus the transfer screenshot a
+// player attaches to a manual deposit, fan out to a configured list of chats.
 //
 // Nothing in here may throw. Telegram is a convenience channel, never a
-// dependency of the support system: an outage, a bad token or a rate limit has to
-// degrade to "the player cannot see the button", not to a 500 on a ticket form.
+// dependency of the deposit or withdrawal path: an outage, a bad token or a rate
+// limit has to degrade to "the operator was not told", not to a failed payout or
+// a 500 on a form the player already filled in.
 //
 // The bot token is only ever read from the environment. It is a full write
 // credential for the bot, so it is never logged, never stored in the database and
 // never sent to the browser.
 
-import { setting, settingBool } from "./settings";
+import { saveSettings, setting, settingBool } from "./settings";
 
 const TOKEN = process.env.TELEGRAM_BOT_TOKEN ?? "";
 const API = "https://api.telegram.org";
 
-/** Chat id the operator wants notifications in; blank means "not configured". */
-const CHAT_SETTING = "support.telegram_chat";
-const ENABLED_SETTING = "support.telegram_enabled";
-
-/** Telegram rejects anything longer; tickets and bodies are trimmed to fit. */
+/** Telegram rejects anything longer; bodies are trimmed to fit. */
 const MAX_TEXT = 4096;
 
 /**
@@ -34,8 +25,7 @@ const MAX_TEXT = 4096;
  *
  * Generous, because the cost of hitting it is uneven: 15s is a long stall on the
  * rare cold path, whereas 6s measured as too tight and timed out while the caller
- * was still finishing a MongoDB round trip — which silently removed the support
- * button for the life of the process.
+ * was still finishing a MongoDB round trip.
  */
 const CALL_TIMEOUT_MS = 15_000;
 
@@ -46,15 +36,16 @@ export function telegramConfigured(): boolean {
 /* ------------------------------------------------------------------ bot info */
 
 /**
- * Resolves the bot's @username.
+ * Resolves the bot's @username, for /admin/settings to show.
  *
- * A token alone is not enough to build a t.me link, and the handle is stable for
- * the life of the bot, so a successful lookup is resolved once per process.
+ * Purely diagnostic — it answers "which bot am I actually talking to", which is
+ * the first question when alerts do not arrive. The handle is stable for the life
+ * of the bot, so a successful lookup is resolved once per process.
  *
  * A failure is cached, but only for a minute. Caching it for the same six hours
  * as a success is the trap: one slow network moment would answer "no bot" to
- * every page render until the process restarted, and the support button would be
- * gone from the site with nothing in the logs to say why.
+ * every render until the process restarted, and the settings page would claim the
+ * bot was missing while it was only unreachable.
  */
 const HANDLE_TTL_MS = 6 * 60 * 60 * 1000;
 const HANDLE_FAILURE_TTL_MS = 60 * 1000;
@@ -62,9 +53,6 @@ const HANDLE_FAILURE_TTL_MS = 60 * 1000;
 let handleCache: { at: number; value: string | null } | null = null;
 
 export async function botHandle(): Promise<string | null> {
-  const override = (await setting("support.telegram_handle")).trim();
-  if (override) return override.replace(/^@/, "");
-
   const ttl =
     handleCache && handleCache.value !== null ? HANDLE_TTL_MS : HANDLE_FAILURE_TTL_MS;
   if (handleCache && Date.now() - handleCache.at < ttl) return handleCache.value;
@@ -82,63 +70,18 @@ export async function botHandle(): Promise<string | null> {
   }
 }
 
-/**
- * Player-facing deep link, or null when Telegram is unavailable so the caller can
- * hide the button instead of rendering a dead link.
- *
- * `payload` becomes the `/start` parameter, which Telegram hands the bot the next
- * time the player presses start.
- */
-export async function supportLink(payload?: string): Promise<string | null> {
-  const handle = await botHandle();
-  if (!handle) return null;
-  const p = (payload ?? "").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 64);
-  return p ? `https://t.me/${handle}?start=${p}` : `https://t.me/${handle}`;
-}
-
-/* --------------------------------------------------------------------- send */
-
-type SendResult = { ok: boolean; error?: string };
-
-/**
- * Sends one message to the operator chat. Never throws — the caller is usually a
- * server action that has already committed the real work.
- */
-export async function sendToOps(text: string): Promise<SendResult> {
-  if (!telegramConfigured()) return { ok: false, error: "no bot token" };
-  if (!(await isEnabled())) return { ok: false, error: "disabled" };
-
-  const chat = (await setting(CHAT_SETTING)).trim();
-  if (!chat) return { ok: false, error: "no operator chat" };
-
-  return sendTo(chat, text);
-}
-
-async function sendTo(chat: string, text: string): Promise<SendResult> {
-  try {
-    await call("sendMessage", {
-      chat_id: chat,
-      text: text.slice(0, MAX_TEXT),
-      disable_web_page_preview: true,
-    });
-    return { ok: true };
-  } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : "send failed" };
-  }
-}
-
 /* ------------------------------------------------------- money alerts (fan-out) */
 
 /**
  * Chats that receive deposit and withdrawal alerts.
  *
- * Deliberately separate from the support chat: support is a queue with one
- * operator, while money movement is something more than one person has to see —
- * a missed withdrawal alert is a player waiting a day for a payout. The value is
- * a comma-separated list of chat ids so the operator set can change from
- * /admin/settings without a redeploy.
+ * A comma-separated list, so the operator set can change from /admin/settings
+ * without a redeploy. This used to be a second chat alongside a support queue:
+ * money movement is something more than one person has to see, because a missed
+ * withdrawal alert is a player waiting a day for a payout.
  */
 const MONEY_CHATS_SETTING = "money.telegram_chats";
+const MONEY_ENABLED_SETTING = "money.telegram_enabled";
 
 /**
  * Chats the operator named for money alerts, before anyone opens settings.
@@ -172,6 +115,25 @@ export async function moneyChats(): Promise<string[]> {
     if (seen.size >= MAX_MONEY_CHATS) break;
   }
   return [...seen];
+}
+
+type SendResult = { ok: boolean; error?: string };
+
+/**
+ * Sends one text to one chat. Never throws: the caller is usually a server action
+ * that has already committed the real work.
+ */
+async function sendTo(chat: string, text: string): Promise<SendResult> {
+  try {
+    await call("sendMessage", {
+      chat_id: chat,
+      text: text.slice(0, MAX_TEXT),
+      disable_web_page_preview: true,
+    });
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "send failed" };
+  }
 }
 
 /**
@@ -240,69 +202,15 @@ async function fanOut(send: (chat: string) => Promise<SendResult>): Promise<numb
   return sent;
 }
 
-/**
- * Pushes a support event to the operator.
- *
- * Fire-and-forget by design: awaited so the message is actually delivered before
- * the action returns, but its result is ignored, so a Telegram failure cannot
- * change what the operator or the player sees in the back office.
- */
-export async function notifyOps(text: string): Promise<void> {
-  try {
-    await sendToOps(text);
-  } catch {
-    /* see file header */
-  }
-}
-
-/** Trims a player-supplied body so a pasted wall of text cannot flood the chat. */
-function preview(body: string): string {
-  const flat = body.replace(/\s+/g, " ").trim();
-  return flat.length > 300 ? `${flat.slice(0, 300)}…` : flat;
-}
-
-/** Something landed in the operators' queue: a brand new ticket. */
-export async function notifyNewTicket(t: {
-  ticket: string;
-  subject: string;
-  category: string;
-  priority: string;
-  email: string;
-  body: string;
-}): Promise<void> {
-  await notifyOps(
-    [
-      `🎫 New ${t.priority}-priority ticket ${t.ticket}`,
-      t.subject,
-      `From: ${t.email}`,
-      `Category: ${t.category}`,
-      "",
-      preview(t.body),
-    ].join("\n")
-  );
-}
-
-/** An existing ticket went back into the queue — a player reply or a reopen. */
-export async function notifyPlayerReply(t: {
-  ticket: string;
-  subject: string;
-  email: string;
-  body: string;
-}): Promise<void> {
-  await notifyOps(
-    ["💬 " + t.email + " replied on " + t.ticket, t.subject, "", preview(t.body)].join("\n")
-  );
-}
-
 /* -------------------------------------------------------------- chat lookup */
 
 /**
  * Finds the operator's chat id from the bot's pending updates.
  *
  * Getting a bot token from BotFather does not tell us who to notify, and asking
- * the operator to find their own chat id is a well-known support trap. Instead:
- * whoever messages the bot first *is* the operator, so their chat is adopted and
- * stored. The operator runs this once from /admin/settings and never again.
+ * the operator to find their own chat id is a well-known trap. Instead: whoever
+ * messages the bot first *is* the operator, so their chat is adopted and stored.
+ * The operator runs this once from /admin/settings and never again.
  *
  * Only chats that have actually sent the bot a message are returned — updates
  * that are merely `my_chat_member` joins would pick up whatever group the bot was
@@ -330,11 +238,35 @@ export async function discoverOpsChat(): Promise<{ chatId: string; name: string 
   }
 }
 
+/**
+ * Adds a chat to the money-alert list without dropping the ones already there.
+ *
+ * Discovery is additive on purpose. The seeded default pair is what the alerts
+ * were built and tested against; a "detect from bot" button that *replaced* the
+ * list would quietly stop alerting the second person the moment anyone used it.
+ */
+export async function addMoneyChat(chatId: string): Promise<void> {
+  const id = chatId.trim();
+  if (!/^-?\d{1,20}$/.test(id)) return;
+  const current = await moneyChats();
+  if (current.includes(id)) return;
+  const next = [...current, id].slice(0, MAX_MONEY_CHATS);
+  await saveSettings({ [MONEY_CHATS_SETTING]: next.join(",") });
+}
+
 /* ------------------------------------------------------------------ helpers */
 
+/**
+ * Whether alerts are switched on at all.
+ *
+ * Defaults to on, and a failure to read the flag reads as *off* rather than as
+ * "send anyway": the worst outcome here is an operator who does not get told a
+ * withdrawal is waiting, and that is worth being conservative about while a
+ * database blip lasts.
+ */
 async function isEnabled(): Promise<boolean> {
   try {
-    return await settingBool(ENABLED_SETTING, true);
+    return await settingBool(MONEY_ENABLED_SETTING, true);
   } catch {
     return false;
   }

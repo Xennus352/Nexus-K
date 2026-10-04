@@ -52,31 +52,26 @@ export const SETTING_DEFS: readonly SettingDef[] = [
   { key: "withdraw.rollover", group: "payment", label: "Require x1 turnover before withdrawal", type: "number", value: "1", help: "Player totalBet must reach totalDeposit × this factor." },
 
   { key: "bonus.welcome", group: "bonus", label: "Welcome bonus coins", type: "number", value: "500" },
-  { key: "bonus.daily", group: "bonus", label: "Daily bonus coins", type: "number", value: "250" },
+  { key: "bonus.daily", group: "bonus", label: "Daily bonus coins", type: "number", value: "1000" },
   { key: "bonus.deposit_percent", group: "bonus", label: "Deposit bonus %", type: "number", value: "0" },
   { key: "bonus.referral", group: "bonus", label: "Referral bonus coins (both sides)", type: "number", value: "100" },
 
   { key: "kyc.required_for_withdraw", group: "misc", label: "Require approved KYC to withdraw", type: "bool", value: "0" },
-  { key: "tickets.enabled", group: "misc", label: "Enable support tickets", type: "bool", value: "1" },
 
-  // Telegram support bridge. The bot token itself is never a setting — it is a
-  // credential and lives only in TELEGRAM_BOT_TOKEN. `telegram_chat` is the
-  // operator's chat id, which /admin/settings fills in from the bot's pending
-  // updates so nobody has to look theirs up by hand.
-  { key: "support.telegram_enabled", group: "misc", label: "Offer Telegram support", type: "bool", value: "1" },
+  // Money alerts. The bot token itself is never a setting — it is a credential
+  // and lives only in TELEGRAM_BOT_TOKEN. The chat list below is filled in from
+  // the bot's pending updates by "Detect from bot" on this page, so nobody has to
+  // look their own chat id up by hand.
+  //
+  // There was a second, separate Telegram list for a support queue until the
+  // support feature was removed. Alerts are the only thing the bot does now, so
+  // they get the only switch: one place to turn off notifications, rather than
+  // two flags that had to be reasoned about together.
   {
-    key: "support.telegram_chat", group: "misc", label: "Telegram operator chat id", type: "text", value: "",
-    help: "Notifications land here. Use “Detect from bot” on this page after messaging the bot once.",
+    key: "money.telegram_enabled", group: "payment", label: "Send deposit & withdrawal alerts to Telegram",
+    type: "bool", value: "1",
+    help: "When off, deposits and withdrawals still work — the operator just is not pushed a message.",
   },
-  {
-    key: "support.telegram_handle", group: "misc", label: "Telegram bot username", type: "text", value: "",
-    help: "Optional. Leave blank to look it up from the bot token automatically.",
-  },
-
-  // Money alerts go to their own list, separate from the support chat above:
-  // support is a single-operator queue, while a missed withdrawal alert is a
-  // player waiting a day for a payout, so more than one person usually watches it.
-  // Comma-separated chat ids. Empty here means the built-in default pair.
   {
     key: "money.telegram_chats", group: "payment", label: "Telegram chats for deposit & withdrawal alerts",
     type: "text", value: "5458464856,6629148549",

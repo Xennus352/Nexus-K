@@ -37,7 +37,7 @@ import { paySignupBonuses } from "@/server/signup-bonuses";
 import { newRefCode } from "@/server/ref-code";
 import { generatePassword, mapWithLimit } from "@/server/credentials";
 import { putCredentialReport } from "@/server/credential-reports";
-import { discoverOpsChat, sendToOps, telegramConfigured } from "@/lib/telegram";
+import { addMoneyChat, discoverOpsChat, moneyChats, notifyMoney, telegramConfigured } from "@/lib/telegram";
 
 /* ------------------------------------------------------------------- utils */
 
@@ -425,9 +425,12 @@ export async function detectTelegramChat(form: FormData) {
     fail(back, "No messages found. Open a chat with the bot and send it anything, then try again.");
   }
 
-  await saveSettings({ "support.telegram_chat": found.chatId });
+  // Additive, not a replacement — see addMoneyChat. The seeded pair is what the
+  // alerts were tested against and overwriting it here would silently stop
+  // alerting the second operator.
+  await addMoneyChat(found.chatId);
   invalidateSettings();
-  done(back, `Notifications will now go to ${found.name} (${found.chatId}).`);
+  done(back, `Alerts will now also go to ${found.name} (${found.chatId}).`);
 }
 
 /** Fires a test notification so an operator can confirm delivery. */
@@ -436,9 +439,19 @@ export async function testTelegram(form: FormData) {
   await superadminOnly(back);
   void form;
 
-  const result = await sendToOps(`✅ Nexus-K back office is connected. Telegram support is live.`);
-  if (!result.ok) fail(back, `Test message failed: ${result.error}`);
-  done(back, "Test message sent.");
+  if (!telegramConfigured()) fail(back, "Set TELEGRAM_BOT_TOKEN in the environment first.");
+
+  const chats = await moneyChats();
+  if (chats.length === 0) fail(back, "No alert chats configured. Use “Detect from bot” first.");
+
+  // notifyMoney returns how many chats accepted it, so the message reports the
+  // fan-out rather than a bare "sent" that would be true even if every single
+  // delivery 403'd.
+  const sent = await notifyMoney(
+    `✅ Nexus-K test alert.\n\nDeposit and withdrawal alerts are live.\nWatching ${chats.length} chat${chats.length === 1 ? "" : "s"}.`,
+  );
+  if (sent === 0) fail(back, "Test message failed — no chat accepted it.");
+  done(back, `Test message sent to ${sent} of ${chats.length} chat${chats.length === 1 ? "" : "s"}.`);
 }
 
 export async function saveUserProfile(form: FormData) {

@@ -8,7 +8,7 @@ import { SETTING_DEFS, loadSettings } from "@/lib/settings";
 import { Button, Notice, PageTitle, Panel } from "@/components/ui";
 import { Flash } from "@/components/admin/parts";
 import { detectTelegramChat, saveSettingsAction, testTelegram } from "@/server/admin-actions";
-import { botHandle, telegramConfigured } from "@/lib/telegram";
+import { botHandle, moneyChats, telegramConfigured } from "@/lib/telegram";
 
 export const dynamic = "force-dynamic";
 
@@ -36,25 +36,25 @@ export default async function AdminSettingsPage({
 
   // Read through loadSettings so a key with no row yet still renders (and gets
   // created) rather than showing an empty box for an unset value.
-  const [values, rows, handle] = await Promise.all([
+  const [values, rows, handle, chats] = await Promise.all([
     loadSettings(),
     prisma.setting.findMany({ select: { key: true, updatedAt: true } }),
     // One extra call, and only on this page: it is the one place the operator
-    // needs to see the resolved @handle to know which bot the players will hit.
+    // needs to see the resolved @handle to know which bot the alerts come from.
     botHandle(),
+    moneyChats(),
   ]);
   const updatedAt = new Map(rows.map((r) => [r.key, r.updatedAt]));
   const isSuper = admin.role === "superadmin";
   const hasToken = telegramConfigured();
-  const chatId = values.get("support.telegram_chat") ?? "";
 
 /**
- * Echoed back in the Telegram panel so an operator can find the money-alert list
- * without knowing its key. Naming the label rather than the key keeps this file
- * from becoming a second place that has to change when the key is renamed.
+ * Echoed back in the Telegram panel so an operator can find the chat list without
+ * knowing its key. Naming the label rather than the key keeps this file from
+ * becoming a second place that has to change when the key is renamed.
  */
 const MONEY_CHATS_SETTING_LABEL =
-  SETTING_DEFS.find((d) => d.key === "money.telegram_chats")?.label ?? "money alerts";
+    SETTING_DEFS.find((d) => d.key === "money.telegram_chats")?.label ?? "money alerts";
 
   const groups = ["general", "payment", "bonus", "misc"] as const;
 
@@ -69,11 +69,11 @@ const MONEY_CHATS_SETTING_LABEL =
 
       {/* Telegram is wired from the environment plus one click here, so it gets a
           short instruction panel rather than living inside the generic form. */}
-      <Panel title="TELEGRAM SUPPORT">
+      <Panel title="TELEGRAM ALERTS">
         {!hasToken ? (
           <Notice tone="info">
             Set <code className="text-amber-200">TELEGRAM_BOT_TOKEN</code> in the environment and restart to
-            offer Telegram as a support channel. Everything else on this page keeps working without it.
+            push deposit and withdrawal alerts. Everything else on this page keeps working without it.
           </Notice>
         ) : (
           <div className="space-y-4">
@@ -82,15 +82,15 @@ const MONEY_CHATS_SETTING_LABEL =
               <span className="font-mono text-sky-300">
                 {handle ? `@${handle}` : "not resolved — check the token"}
               </span>{" "}
-              {chatId ? (
+              {chats.length > 0 ? (
                 <>
-                  is sending notifications to chat{" "}
-                  <span className="font-mono text-sky-300">{chatId}</span>.
+                  is alerting{" "}
+                  <span className="font-mono text-sky-300">{chats.join(", ")}</span>
+                  {chats.length === 1 ? "." : " — every new deposit and withdrawal goes to all of them."}
                 </>
               ) : (
                 <span className="text-amber-300">
-                  has no notification chat yet. Open a chat with the bot, send it any message, then detect it
-                  below.
+                  has no alert chats. Open a chat with the bot, send it any message, then detect it below.
                 </span>
               )}
             </p>
@@ -103,7 +103,7 @@ const MONEY_CHATS_SETTING_LABEL =
                   </Button>
                 </form>
                 <form action={testTelegram}>
-                  <Button tone="ghost" type="submit" disabled={!chatId}>
+                  <Button tone="ghost" type="submit" disabled={chats.length === 0}>
                     Send test message
                   </Button>
                 </form>
@@ -111,17 +111,12 @@ const MONEY_CHATS_SETTING_LABEL =
             )}
 
             <p className="text-xs leading-relaxed text-slate-500">
-              Players get a &ldquo;Message us on Telegram&rdquo; button on the support pages that deep-links to
-              the bot with their ticket number. New tickets and player replies arrive here. The token itself is
+              Alerts carry payout numbers, a player&apos;s email and — for a manual deposit — the transfer
+              screenshot they attached, so the chat list is worth keeping to people who should see all of that.
+              Change it under{" "}
+              <span className="font-semibold text-slate-400">{MONEY_CHATS_SETTING_LABEL}</span> in the form
+              below; the switch next to it turns alerts off without deleting the list. The bot token itself is
               never shown here — it stays in the environment.
-            </p>
-            <p className="mt-2 text-xs leading-relaxed text-slate-500">
-              Deposit and withdrawal alerts go to their own list, set under{" "}
-              <span className="font-semibold text-slate-400">
-                {MONEY_CHATS_SETTING_LABEL}
-              </span>{" "}
-              in the form below — a separate list because more than one person usually watches money move,
-              and because the alerts carry payout numbers and bank screenshots.
             </p>
           </div>
         )}
