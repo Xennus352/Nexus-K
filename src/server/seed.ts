@@ -19,6 +19,8 @@ import { SETTING_DEFS } from "@/lib/settings";
  * app stores ("StripeV3"), so the mapping is explicit.
  */
 const LOGOS: Record<string, string> = {
+  KPay: "/gfx/payments/kpay.svg",
+  Wave: "/gfx/payments/wave.svg",
   StripeV3: "/gfx/gateways/stripe-checkout.webp",
   PaypalSdk: "/gfx/gateways/paypal-express.webp",
   NowPaymentsCheckout: "/gfx/gateways/now-payments-checkout.webp",
@@ -56,6 +58,13 @@ type SeedGateway = {
  */
 const GATEWAYS: SeedGateway[] = [
   {
+    // A generic bank/wire rail, kept as the template for "some other way to pay".
+    // It ships disabled and with no account details: the bank name, IBAN, BIC and
+    // sort code it used to carry were invented, and a rail row full of invented
+    // numbers is the one thing an operator is most likely to enable and leave —
+    // a player would then transfer real money to an account that does not exist.
+    // Turning it into a working rail means filling every field in
+    // /admin/gateways, which is a deliberate act.
     alias: "Manual",
     name: "Bank Transfer / E-Wallet",
     driver: "manual",
@@ -64,13 +73,12 @@ const GATEWAYS: SeedGateway[] = [
     minAmount: 10,
     maxAmount: 50000,
     percentFee: 0,
-    status: true,
-    instructions:
-      "Send the exact amount using your reference number. Funds are credited once the transfer clears.",
+    status: false,
+    instructions: "",
     rails: [
-      { label: "Bank", value: "Nexus-K Trust Bank · 0912 345 678 · Nexus-K Ltd", art: "/gfx/payments/01.webp" },
-      { label: "Wire / SWIFT", value: "NEXUSK LTD · BIC NXKGB2L · Sort 20-00-00", art: "/gfx/payments/06.webp" },
-      { label: "E-Wallet", value: "Wallet ID must match your registered email", art: "/gfx/payments/12.webp" },
+      { label: "Bank", value: "", art: "/gfx/payments/01.webp" },
+      { label: "Wire / SWIFT", value: "", art: "/gfx/payments/06.webp" },
+      { label: "E-Wallet", value: "", art: "/gfx/payments/12.webp" },
     ],
   },
   {
@@ -82,7 +90,6 @@ const GATEWAYS: SeedGateway[] = [
     alias: "KPay",
     name: "KPay",
     driver: "manual",
-    logo: "/gfx/payments/12.webp",
     currency: "MMK",
     currencies: ["MMK"],
     minAmount: 10,
@@ -92,15 +99,16 @@ const GATEWAYS: SeedGateway[] = [
     instructions:
       "Open KPay, choose Transfer, enter the number below and send the exact amount. Then attach the screenshot of the confirmation here.",
     rails: [
-      // Blank on purpose — see the note above the GATEWAYS array.
-      { label: "KPay number", value: "", art: "/gfx/payments/12.webp" },
+      // Blank on purpose — see the note above the GATEWAYS array. `art` is the
+      // wallet's own mark, reused from the LOGOS map so the tile and the rail
+      // show the same brand.
+      { label: "KPay number", value: "", art: LOGOS.KPay },
     ],
   },
   {
     alias: "Wave",
     name: "Wave",
     driver: "manual",
-    logo: "/gfx/payments/12.webp",
     currency: "MMK",
     currencies: ["MMK"],
     minAmount: 10,
@@ -109,9 +117,7 @@ const GATEWAYS: SeedGateway[] = [
     status: true,
     instructions:
       "Open Wave, choose Send Money, enter the number below and send the exact amount. Then attach the screenshot of the confirmation here.",
-    rails: [
-      { label: "Wave number", value: "", art: "/gfx/payments/12.webp" },
-    ],
+    rails: [{ label: "Wave number", value: "", art: LOGOS.Wave }],
   },
   {
     alias: "StripeV3",
@@ -299,7 +305,18 @@ async function main() {
   for (const [i, g] of GATEWAYS.entries()) {
     await prisma.gateway.upsert({
       where: { alias: g.alias },
-      update: {}, // credentials and status are operator-owned
+      // Presentation and ordering only. `status`, `config`, the amounts and
+      // `rails` are deliberately absent: they are operator-owned, and a deploy
+      // that re-enabled a rail or rewrote its receiving number would be worse
+      // than a stale default. `logo` and `name` are the other way round — they are
+      // what the player sees on the deposit page and there is nothing to
+      // configure about them, so leaving a removed asset path in place would break
+      // the tile rather than preserve a choice.
+      update: {
+        name: g.name,
+        logo: g.logo ?? LOGOS[g.alias] ?? "",
+        sort: i,
+      },
       create: {
         alias: g.alias,
         name: g.name,

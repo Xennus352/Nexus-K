@@ -10,6 +10,7 @@
     "postinstall": "prisma generate",
     "db:push": "prisma db push",
     "db:seed": "tsx --env-file=.env src/server/seed.ts",
+    "db:apply-defaults": "tsx --env-file=.env scripts/apply-seed-defaults.mts",
     "db:e2e": "tsx --env-file=.env scripts/e2e-money.mts",
     "db:e2e:http": "tsx --env-file=.env scripts/e2e-http.mts",
     "typecheck": "tsc --noEmit"
