@@ -1,6 +1,10 @@
+import Link from "next/link";
+import { cookies } from "next/headers";
 import { getSession } from "@/lib/session";
+import { BOOT_COOKIE } from "@/lib/boot-flag";
 import { redirect } from "next/navigation";
 import GameCard from "@/components/GameCard";
+import LobbyBoot from "@/components/LobbyBoot";
 
 const ENGINE = process.env.SLOTOPOL_URL ?? "http://localhost:8080";
 
@@ -40,7 +44,12 @@ export default async function Lobby({
       (!prov || g.prov === prov)
   );
 
-  return (
+  // Asked here rather than inside `LobbyBoot`, which is the only way a warm lobby
+  // can arrive unwrapped. See `src/lib/boot-flag.ts` for why this is a cookie and
+  // not `sessionStorage`.
+  const booted = (await cookies()).has(BOOT_COOKIE);
+
+  const lobby = (
     <div>
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-3xl font-black">🎰 CASINO <span className="rounded bg-red-500 px-2 py-0.5 text-xs align-middle">HOT</span></h1>
@@ -60,14 +69,26 @@ export default async function Lobby({
             <option key={p} value={p}>{p}</option>
           ))}
         </select>
-        <button className="rounded-xl bg-gradient-to-r from-blue-600 to-sky-500 px-5 py-2.5 font-bold">Filter</button>
+        <button className="cursor-pointer rounded-xl bg-gradient-to-r from-blue-600 to-sky-500 px-5 py-2.5 font-bold">Filter</button>
       </form>
 
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
-        {filtered.map((g) => (
-          <GameCard key={`${g.prov}/${g.name}`} g={g} />
-        ))}
-      </div>
+      {filtered.length === 0 ? (
+        <p className="rounded-2xl border border-white/5 bg-[#35478a] p-6 text-sm text-slate-400">
+          No games match that search.{" "}
+          <Link href="/lobby" className="font-bold text-sky-300 hover:underline">
+            Clear the filters
+          </Link>
+          .
+        </p>
+      ) : (
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
+          {filtered.map((g) => (
+            <GameCard key={`${g.prov}/${g.name}`} g={g} />
+          ))}
+        </div>
+      )}
     </div>
   );
+
+  return booted ? lobby : <LobbyBoot>{lobby}</LobbyBoot>;
 }
