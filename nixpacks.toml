@@ -7,7 +7,7 @@ nixPackages = ["nodejs_20", "pnpm"]
 
 [phases.install]
 cmds = [
-  "cp pnpm-workspace.yaml .npmrc . 2>/dev/null || true",
+  "pnpm config set allow-builds 'prisma @prisma/client @prisma/engines esbuild unrs-resolver'",
   "pnpm install --frozen-lockfile --prefer-offline"
 ]
 

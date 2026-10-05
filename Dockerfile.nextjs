@@ -13,7 +13,7 @@ COPY pnpm-workspace.yaml ./
 COPY .npmrc ./
 COPY prisma ./prisma/
 
-# Configure pnpm to allow required build scripts
+# Configure pnpm to allow required build scripts (redundant with .npmrc but explicit)
 RUN pnpm config set allow-builds 'prisma @prisma/client @prisma/engines esbuild unrs-resolver'
 
 # Install dependencies
