@@ -22,7 +22,7 @@ export default function NewPlayerForm({ action }: { action: (form: FormData) => 
     "w-full rounded-xl border border-white/10 bg-[#2b3a6e] px-4 py-2.5 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-sky-500";
 
   return (
-    <details className="group overflow-hidden rounded-2xl border border-sky-500/20 bg-[#1b2a5e]">
+    <details className="group rounded-2xl border border-sky-500/20 bg-[#1b2a5e]">
       <summary className="flex cursor-pointer list-none items-center gap-2.5 px-5 py-3.5 transition hover:bg-white/5">
         <UserPlus className="h-4 w-4 shrink-0 text-sky-400" />
         <span className="min-w-0 flex-1">

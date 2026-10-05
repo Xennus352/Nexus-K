@@ -99,7 +99,7 @@ export default function NotificationBell({
   const unread = notices.filter((n) => Date.parse(n.at) > seen).length;
 
   function markAllRead() {
-    const now = Date.now();
+    const now = Date.now() + 1000; // +1s future margin so all current notices are strictly older
     try {
       localStorage.setItem(seenKey(uid), String(now));
     } catch {
@@ -126,7 +126,7 @@ export default function NotificationBell({
         aria-label={unread > 0 ? `Notifications, ${unread} unread` : "Notifications"}
         title="Notifications"
         data-testid="notif-bell"
-        className="relative flex h-9 w-9 cursor-pointer items-center justify-center rounded-xl border border-white/10 transition hover:border-sky-400/50 hover:bg-white/5"
+        className="relative flex h-10 w-10 cursor-pointer items-center justify-center rounded-xl border border-white/10 transition hover:border-sky-400/50 hover:bg-white/5"
       >
         <Bell className={`h-5 w-5 ${unread > 0 ? "text-sky-300" : "text-slate-400"}`} />
         {unread > 0 && (

@@ -162,7 +162,7 @@ export default async function AdminGatewaysPage({
                       <form action={toggleGateway}>
                         <input type="hidden" name="id" value={g.id} />
                         <input type="hidden" name="status" value={enabled ? "off" : "on"} />
-                        <Button type="submit" tone="ghost" className="px-3 py-1.5 text-xs">
+                        <Button type="submit" tone="ghost" className="px-4 py-2 text-sm">
                           {enabled ? "Disable" : "Enable"}
                         </Button>
                       </form>

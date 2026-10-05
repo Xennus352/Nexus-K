@@ -17,10 +17,16 @@ import { SETTING_DEFS } from "@/lib/settings";
  * scripts/optimize-upload-code.sh under a slug of the *display name* that dump
  * used ("Stripe Checkout" → stripe-checkout.webp) — which is not the alias this
  * app stores ("StripeV3"), so the mapping is explicit.
+ *
+ * KPay and Wave are the exception: their marks were re-drawn as local PNGs at
+ * `public/gfx/payments/{kpay,wave}.png`. The KPay entry used to point at a
+ * `.svg` that no longer exists (404 on the tile), and Wave pointed at the
+ * *Flutterwave* dump art — right shape, wrong brand, so a player picking Wave
+ * Money saw somebody else's logo.
  */
 const LOGOS: Record<string, string> = {
-  KPay: "/gfx/payments/kpay.svg",
-  Wave: "/gfx/gateways/flutterwave.webp",
+  KPay: "/gfx/payments/kpay.png",
+  Wave: "/gfx/payments/wave.png",
   StripeV3: "/gfx/gateways/stripe-checkout.webp",
   PaypalSdk: "/gfx/gateways/paypal-express.webp",
   NowPaymentsCheckout: "/gfx/gateways/now-payments-checkout.webp",

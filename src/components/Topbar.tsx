@@ -26,13 +26,13 @@ export default async function Topbar({
 
   return (
     <header className="sticky top-0 z-20 flex items-center justify-between gap-2 border-b border-blue-950 bg-[#2f3f76]/85 px-3 py-3 backdrop-blur sm:px-6 sm:py-4">
-      <div className="hidden items-center gap-2 text-amber-300 sm:flex">
+      <div className="hidden items-center gap-2 text-amber-300 md:flex">
         <Gem className="h-5 w-5" />
         <span className="font-bold">VIP</span>
         <span className="text-slate-500">DIAMOND</span>
       </div>
-      <div className="flex min-w-0 items-center gap-2 sm:gap-3">
-        <div className="min-w-0 rounded-xl border border-sky-500/30 bg-sky-950/40 px-2 py-1.5 text-right sm:px-4 sm:py-2">
+      <div className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-3">
+        <div className="min-w-0 max-w-[180px] sm:max-w-none rounded-xl border border-sky-500/30 bg-sky-950/40 px-2 py-1.5 text-right sm:px-4 sm:py-2">
           <div className="text-[9px] tracking-widest text-sky-400 sm:text-[10px]">TOTAL BALANCE</div>
           <div
             data-testid="topbar-balance"
@@ -70,7 +70,7 @@ export default async function Topbar({
           title={`${email} — my account`}
           aria-label="My account"
           data-testid="account-avatar"
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-sky-400/50 bg-sky-900 font-bold text-sky-200 transition hover:border-sky-300 hover:bg-sky-800 sm:h-10 sm:w-10"
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-sky-400/50 bg-sky-900 font-bold text-sky-200 transition hover:border-sky-300 hover:bg-sky-800"
         >
           {initial}
         </Link>
@@ -78,7 +78,7 @@ export default async function Topbar({
           <button
             title="Logout"
             aria-label="Logout"
-            className="flex cursor-pointer items-center rounded-lg p-1 transition hover:bg-white/10"
+            className="flex h-10 w-10 cursor-pointer items-center justify-center rounded-lg transition hover:bg-white/10"
           >
             <LogOut className="h-5 w-5 text-slate-500 hover:text-white" />
           </button>

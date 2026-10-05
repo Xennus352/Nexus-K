@@ -24,7 +24,7 @@ export function Panel({
   return (
     <section className={`rounded-2xl border border-white/5 bg-[#35478a] ${className}`}>
       {title && (
-        <header className="flex items-center justify-between gap-3 border-b border-white/5 px-5 py-3">
+        <header className="flex flex-wrap items-center justify-between gap-3 border-b border-white/5 px-5 py-3">
           <h3 className="text-sm font-bold tracking-wide text-slate-200">{title}</h3>
           {action}
         </header>
@@ -145,7 +145,7 @@ export function Button({
   return (
     <button
       {...props}
-      className={`rounded-xl px-5 py-2.5 text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-50 ${BUTTON_TONES[tone]} ${className}`}
+      className={`rounded-xl px-5 py-3 text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-50 ${BUTTON_TONES[tone]} ${className}`}
     />
   );
 }
@@ -164,7 +164,7 @@ export function ButtonLink({
   return (
     <Link
       href={href}
-      className={`inline-block rounded-xl px-5 py-2.5 text-sm font-bold transition ${BUTTON_TONES[tone]} ${className}`}
+      className={`inline-block rounded-xl px-5 py-3 text-sm font-bold transition ${BUTTON_TONES[tone]} ${className}`}
     >
       {children}
     </Link>

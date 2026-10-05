@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "engine": "cd engine && ./slotopol web",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
@@ -26,6 +27,15 @@
     "prisma": "^6.19.3",
     "react": "19.2.8",
     "react-dom": "19.2.8"
+  },
+  "pnpm": {
+    "allowBuilds": [
+      "prisma",
+      "@prisma/client",
+      "@prisma/engines",
+      "esbuild",
+      "unrs-resolver"
+    ]
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

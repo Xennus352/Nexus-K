@@ -1,9 +1,8 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { AlertTriangle, ImagePlus, X } from "lucide-react";
-import { Button, Field, Notice, inputClass } from "@/components/ui";
+import { Button, ButtonLink, Field, Notice, inputClass } from "@/components/ui";
 import CopyButton from "@/components/CopyButton";
 import { MAX_SLIP_BYTES, MAX_SLIP_MB, isSlipMime } from "@/lib/slips";
 
@@ -177,7 +176,6 @@ export default function DepositForm({
   max: number;
   defaultCurrency: string;
 }) {
-  const router = useRouter();
   const [selectedId, setSelectedId] = useState(gateways[0]?.id ?? "");
   const selected = gateways.find((g) => g.id === selectedId);
   const [currency, setCurrency] = useState(
@@ -412,7 +410,11 @@ export default function DepositForm({
                     src={rail.art}
                     alt=""
                     aria-hidden
-                    className="h-9 w-16 shrink-0 rounded-md bg-white/95 object-contain"
+                    // `h-8 w-auto` rather than a fixed `w-16`: the wallet marks are
+                    // different shapes (KPay 512x512, Wave 1024x500) and a fixed
+                    // box letterboxes whichever one does not fit it. Height is the
+                    // constant, width follows the art.
+                    className="h-8 w-auto shrink-0 rounded-md bg-white/95 object-contain"
                   />
                 )}
                 <div className="min-w-0 flex-1">
@@ -487,13 +489,9 @@ export default function DepositForm({
       <Button type="submit" disabled={busy || (manual && !file)} className="w-full sm:w-auto">
         {busy ? "Sending…" : manual ? "Send proof of transfer" : `Deposit ${selected?.name ?? ""}`}
       </Button>
-      <button
-        type="button"
-        onClick={() => router.push("/deposit/history")}
-        className="ml-3 text-sm text-sky-400 hover:underline"
-      >
+      <ButtonLink href="/deposit/history" tone="ghost" className="ml-3 sm:ml-0">
         View deposit history →
-      </button>
+      </ButtonLink>
     </form>
   );
 }

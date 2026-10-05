@@ -9,6 +9,9 @@ import { allFlags, buildLobby, matchesLobbyFilter, type EngineGame } from "@/lib
 
 const ENGINE = process.env.SLOTOPOL_URL ?? "http://localhost:8080";
 
+/** Per-request catalogue tracing. Off in production, where it is pure noise. */
+const TRACE = process.env.NODE_ENV !== "production";
+
 type GameInfo = {
   prov: string; name: string; date: string; gt: number;
   sx: number; sy: number; ln: number; rtp: number[];
@@ -25,31 +28,46 @@ export default async function Lobby({
 
   let engineGames: EngineGame[] = [];
   let engineError = false;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5000);
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 5000);
-    console.log("[LOBBY] Fetching from engine:", ENGINE);
     const res = await fetch(`${ENGINE}/game/list?inc=all&exc=~all&sort=true`, {
       cache: "no-store",
       signal: controller.signal,
     });
-    clearTimeout(timeout);
     const data = await res.json();
-    console.log("[LOBBY] Engine response status:", res.status, "total games:", data.list?.length);
     engineGames = (data.list ?? [])
       .filter((g: GameInfo) => g.gt === 1)
       .map((g: GameInfo) => ({ prov: g.prov, name: g.name, sx: g.sx, sy: g.sy, rtp: g.rtp, gt: g.gt, ln: g.ln }));
-    console.log("[LOBBY] Filtered to", engineGames.length, "slot games");
+    // One line rather than three, and dev only: this block runs on every lobby
+    // visit, and the counts are the first thing anyone debugging the catalogue
+    // wants and the last thing production needs said out loud.
+    if (TRACE) console.log(`[LOBBY] engine ${res.status}: ${engineGames.length} slots of ${data.list?.length ?? 0} listed`);
   } catch (e) {
-    console.error("[LOBBY] Engine fetch failed:", e instanceof Error ? e.message : String(e));
     engineError = true;
+    // A warning, not an error. The engine being unreachable is a state this page
+    // already handles — banner above, local catalogue below — and logging it as
+    // an error puts a red overlay on every lobby visit and buries the failures
+    // that are actually faults.
+    console.warn(`[LOBBY] engine unreachable at ${ENGINE}:`, e instanceof Error ? e.message : String(e));
+  } finally {
+    // Also on the failure path: the timer used to outlive a rejected fetch and
+    // abort a controller nothing was waiting on any more.
+    clearTimeout(timeout);
   }
 
   // The operator's per-game on/off switches, applied to both catalogues at once.
   const flags = await allFlags();
   const { games: merged, providers } = buildLobby(engineGames, flags);
   const filtered = merged.filter((g) => matchesLobbyFilter(g, q ?? "", prov ?? ""));
-  console.log("[LOBBY] Merged games:", merged.length, "filtered:", filtered.length, "q:", q, "prov:", prov);
+  // `q` and `prov` are absent on an unfiltered visit, and printing the word
+  // "undefined" for them reads like a bug in the search rather than no search.
+  if (TRACE)
+    console.log(
+      `[LOBBY] merged ${merged.length}, filtered ${filtered.length}` +
+        (q ? `, q "${q}"` : "") +
+        (prov ? `, prov "${prov}"` : ""),
+    );
 
   // Asked here rather than inside `LobbyBoot`, which is the only way a warm lobby
   // can arrive unwrapped. See `src/lib/boot-flag.ts` for why this is a cookie and
@@ -109,6 +127,7 @@ export default async function Lobby({
                 href: g.href,
                 maint: g.maint,
                 local: g.local,
+                trending: g.trending,
               }}
             />
           ))}

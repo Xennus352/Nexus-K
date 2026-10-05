@@ -35,14 +35,14 @@ export default function WithdrawForm({
   const [done, setDone] = useState("");
 
   const method = methods.find((m) => m.id === methodId);
-  const coins = Number.parseFloat(amount);
-  const valid = Number.isFinite(coins) && coins > 0;
+  const coins = Math.floor(Number.parseFloat(amount) || 0);
+  const valid = coins > 0;
 
   const fee =
-    valid && method ? (coins * method.percentFee) / 100 + method.fixedFee : 0;
+    valid && method ? Math.round((coins * method.percentFee) / 100 + method.fixedFee) : 0;
   const charge = valid ? coins + fee : 0;
   const payout =
-    valid && method ? coinsToCash(coins, method.rate, method.currency) : 0;
+    valid && method ? Math.round(coinsToCash(coins, method.rate, method.currency)) : 0;
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -103,9 +103,9 @@ export default function WithdrawForm({
   // player typed, and `"9" < 10` is false while `9 > 10` is false too — but
   // `"100" < 10` is true, so a numeric-looking string would sail past a string
   // comparison and reach the server, which would then reject it.
-  const overMax = valid && method ? coins > method.maxAmount : false;
-  const underMin = valid && method ? coins < method.minAmount : false;
-  const overBalance = valid && coins > wallet;
+  const overMax = valid && method ? coins > Math.floor(method.maxAmount) : false;
+  const underMin = valid && method ? coins < Math.floor(method.minAmount) : false;
+  const overBalance = valid && coins > Math.floor(wallet);
   const blocked =
     !valid ||
     missingRequired.length > 0 ||
@@ -116,11 +116,11 @@ export default function WithdrawForm({
   const blocker = !valid
     ? "Enter an amount."
     : underMin
-      ? `The minimum for ${method?.name} is ${method?.minAmount.toLocaleString()} coins.`
+      ? `The minimum for ${method?.name} is ${Math.floor(method?.minAmount ?? 0).toLocaleString()} coins.`
       : overMax
-        ? `The maximum for ${method?.name} is ${method?.maxAmount.toLocaleString()} coins.`
+        ? `The maximum for ${method?.name} is ${Math.floor(method?.maxAmount ?? 0).toLocaleString()} coins.`
         : overBalance
-          ? `That is more than your balance of ${wallet.toLocaleString()} coins.`
+          ? `That is more than your balance of ${Math.floor(wallet).toLocaleString()} coins.`
           : missingRequired.length > 0
             ? `Fill in: ${missingRequired.join(", ")}.`
             : "";
@@ -164,7 +164,7 @@ export default function WithdrawForm({
         label="AMOUNT (COINS)"
         hint={
           method
-            ? `Balance ${wallet.toLocaleString()} · ${method.minAmount.toLocaleString()}–${method.maxAmount.toLocaleString()} coins`
+            ? `Balance ${Math.floor(wallet).toLocaleString()} · ${Math.floor(method.minAmount).toLocaleString()}–${Math.floor(method.maxAmount).toLocaleString()} coins`
             : undefined
         }
       >
@@ -189,9 +189,9 @@ export default function WithdrawForm({
 
       {valid && method && (
         <div className="rounded-xl border border-white/10 bg-[#2b3a6e] p-4 text-sm">
-          <Row label="Fee" value={`${fee.toFixed(2)} coins`} />
-          <Row label="Reserved from balance" value={`${charge.toFixed(2)} coins`} strong />
-          <Row label={`You receive (${method.currency})`} value={payout.toFixed(2)} strong />
+          <Row label="Fee" value={`${fee.toLocaleString()} coins`} />
+          <Row label="Reserved from balance" value={`${charge.toLocaleString()} coins`} strong />
+          <Row label={`You receive (${method.currency})`} value={payout.toLocaleString()} strong />
         </div>
       )}
 

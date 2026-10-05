@@ -48,9 +48,12 @@ src/generated/
 # slotopol game engine build
 engine/
 
-# original free asset packs (122 MB) — kept locally, not committed.
-# public/gfx holds the optimized WebP derivatives the app loads.
+# Original free asset packs (~146 MB) — kept locally, never committed and never
+# served: they live at the repo root in assets/, outside public/, so Next.js
+# neither copies them into the build nor exposes them over HTTP. public/gfx
+# holds only the WebP derivatives the app loads.
 # regenerate with: ./scripts/optimize-assets.sh
+/assets/
 /public/assets/
 
 # source Laravel casino dump (168 MB) — kept locally, not committed.

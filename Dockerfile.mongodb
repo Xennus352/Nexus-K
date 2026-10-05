@@ -1,0 +1,11 @@
+# MongoDB Dockerfile for Render
+FROM mongo:7
+
+# Render provides PORT env var, MongoDB uses 27017 by default
+EXPOSE 27017
+
+# Healthcheck for Render
+HEALTHCHECK --interval=10s --timeout=5s --start-period=10s --retries=5 \
+  CMD mongosh --eval "db.adminCommand('ping')" || exit 1
+
+CMD ["mongod", "--bind_ip_all"]

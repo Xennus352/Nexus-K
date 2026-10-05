@@ -147,7 +147,7 @@ export default async function AdminDashboard({
         </div>
       </Panel>
 
-      <div className="grid gap-6 xl:grid-cols-2">
+      <div className="grid gap-6 sm:grid-cols-1 xl:grid-cols-2">
         <Panel title="LATEST DEPOSITS" bodyClass="p-0 sm:p-0" action={<Link href="/admin/deposits" className="text-xs text-sky-400 hover:underline">All</Link>}>
           {recentDeposits.length === 0 ? (
             <div className="p-5">

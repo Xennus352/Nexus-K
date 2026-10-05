@@ -184,7 +184,7 @@ export default async function AdminUsersPage({
                   {fmt(u.totalDeposit, currency)}
                 </td>
                 <td className="px-4 py-3 font-mono text-xs text-slate-300">
-                  {u.totalBet.toLocaleString()}
+                  {Math.floor(u.totalBet).toLocaleString()}
                 </td>
                 <td className="px-4 py-3 font-mono text-xs text-slate-400">{u.refCode || "—"}</td>
                 <td className="px-4 py-3 text-xs text-slate-500">{formatDate(u.createdAt)}</td>

@@ -1,0 +1,76 @@
+version: "3.8"
+
+services:
+  mongodb:
+    image: mongo:7
+    container_name: nexus-mongodb
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    environment:
+      MONGO_INITDB_DATABASE: nexus-k
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  slotopol:
+    build:
+      context: ./engine
+      dockerfile: Dockerfile
+    container_name: nexus-slotopol
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - slotopol_data:/go/bin
+    environment:
+      DATABASE_DRIVER: sqlite3
+      CLUB_SOURCE_NAME: /go/bin/slot-club.sqlite
+      SPIN_SOURCE_NAME: /go/bin/slot-spin.sqlite
+      ACCESS_KEY: ${ACCESS_KEY:-dev-access-key-change-in-production}
+      REFRESH_KEY: ${REFRESH_KEY:-dev-refresh-key-change-in-production}
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  nextjs:
+    build:
+      context: .
+      dockerfile: Dockerfile.nextjs
+    container_name: nexus-nextjs
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: mongodb://mongodb:27017/nexus-k
+      SESSION_SECRET: ${SESSION_SECRET:-dev-secret-change-in-production}
+      SLOTOPOL_URL: http://slotopol:8080
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      ADMIN_EMAIL: admin@nexus-k.test
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-nexus-admin}
+      NODE_ENV: production
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      slotopol:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+volumes:
+  mongodb_data:
+  slotopol_data:

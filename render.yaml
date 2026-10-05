@@ -1,0 +1,72 @@
+# Render Blueprint for Nexus-K Casino
+# Deploy with: render deploy --confirm
+# Or push to GitHub and connect repo in Render dashboard
+
+services:
+  # ─── MongoDB ───
+  - type: pserv
+    name: nexus-mongodb
+    plan: starter
+    env: docker
+    dockerfilePath: ./Dockerfile.mongodb
+    disk:
+      name: mongodb-data
+      mountPath: /data/db
+      sizeGB: 10
+    healthCheckPath: /
+
+  # ─── Slotopol Engine (Go) ───
+  - type: webservice
+    name: nexus-slotopol
+    plan: starter
+    env: docker
+    dockerfilePath: ./engine/Dockerfile
+    dockerContext: ./engine
+    envVars:
+      # Database (uses SQLite by default, persisted on disk)
+      - key: DATABASE_DRIVER
+        value: sqlite3
+      - key: CLUB_SOURCE_NAME
+        value: /go/bin/slot-club.sqlite
+      - key: SPIN_SOURCE_NAME
+        value: /go/bin/slot-spin.sqlite
+      # JWT keys (generate unique ones for production)
+      - key: ACCESS_KEY
+        generateValue: true
+      - key: REFRESH_KEY
+        generateValue: true
+    disk:
+      name: slotopol-data
+      mountPath: /go/bin
+      sizeGB: 2
+    healthCheckPath: /ping
+    autoDeploy: true
+
+  # ─── Next.js App ───
+  - type: webservice
+    name: nexus-nextjs
+    plan: starter
+    env: docker
+    dockerfilePath: ./Dockerfile.nextjs
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: nexus-mongodb
+          property: connectionString
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: SLOTOPOL_URL
+        value: http://nexus-slotopol:8080
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: ADMIN_EMAIL
+        value: admin@nexus-k.test
+      - key: ADMIN_PASSWORD
+        generateValue: true
+    healthCheckPath: /
+    autoDeploy: true
+
+databases:
+  - name: nexus-mongodb
+    plan: starter
+    ipAllowList: []  # Private network only

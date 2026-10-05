@@ -54,6 +54,47 @@ await prisma.gateway.update({
 });
 console.log("Manual rail: disabled, invented account details cleared");
 
+/* ------------------------------------------------------ wallet marks (art) */
+
+// The KPay/Wave tiles and rails were carrying art written once at first install,
+// and `db:seed` never rewrites `rails` — so KPay kept pointing at a `.svg` that
+// had been deleted (a 404 on the tile) and Wave kept the *Flutterwave* dump art,
+// while the marks re-drawn at `public/gfx/payments/{kpay,wave}.png` sat unused.
+// `LOGOS` in src/server/seed.ts is fixed for fresh installs; this moves the ones
+// that already exist.
+//
+// Only `art` moves. `value` is the receiving number and belongs to the operator:
+// rewriting it is exactly the clobber this script exists to avoid.
+const WALLET_ART: Record<string, { logo: string; rails: string[] }> = {
+  KPay: { logo: "/gfx/payments/kpay.png", rails: ["KPay number"] },
+  Wave: { logo: "/gfx/payments/wave.png", rails: ["Wave number"] },
+};
+
+for (const [alias, want] of Object.entries(WALLET_ART)) {
+  const g = await prisma.gateway.findUnique({ where: { alias } });
+  if (!g) {
+    console.log(`${alias}: row not found, skipped`);
+    continue;
+  }
+  let rails = g.rails;
+  if (rails) {
+    const rows = JSON.parse(rails) as { label?: string; art?: string }[];
+    for (const r of rows) {
+      if (r.label && want.rails.includes(r.label)) r.art = want.logo;
+    }
+    rails = JSON.stringify(rows);
+  }
+  if (rails === g.rails && g.logo === want.logo) {
+    console.log(`${alias}: art already current`);
+    continue;
+  }
+  await prisma.gateway.update({
+    where: { alias },
+    data: { logo: want.logo, rails },
+  });
+  console.log(`${alias}: art -> ${want.logo}`);
+}
+
 /* ----------------------------------------------- accounts the filters cannot see */
 
 // `User.status` is `String @default("active")`, and the client applies that default,

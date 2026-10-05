@@ -122,7 +122,7 @@ export default async function AccountPage() {
               <button
                 type="button"
                 data-copy={user.refCode}
-                className="cursor-pointer rounded-lg border border-sky-400/30 px-3 py-1.5 text-xs font-bold text-sky-200 transition hover:bg-sky-500/20"
+                className="cursor-pointer rounded-lg border border-sky-400/30 px-3 py-2.5 text-sm font-bold text-sky-200 transition hover:bg-sky-500/20"
               >
                 Copy
               </button>

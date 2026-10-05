@@ -6,8 +6,8 @@ import gsap from "gsap";
 import confetti from "canvas-confetti";
 import { logSpin } from "@/server/actions";
 import {
-  themeFor, assetFor, sceneFor, multArt, MULTIPLIERS,
-  badgeFor, type BadgeKind, type Multiplier,
+  themeFor, assetFor, sceneFor, multTile,
+  badgeFor, type BadgeKind,
 } from "@/lib/theme";
 import Loader from "@/components/Loader";
 import ConsoleButton from "@/components/game/ConsoleButton";
@@ -15,7 +15,43 @@ import CountUp from "@/components/CountUp";
 import { publishBalance, subscribeBalance } from "@/server/realtime";
 
 type Grid = number[][];
-type Win = { pay: number; sym: number; num: number; li: number; xy: [number, number][] };
+
+/**
+ * One winning combination as the engine reports it.
+ *
+ * `mp` is the multiplier the row is scaled by — `slot.WinItem.MP` in the Go
+ * source. It is not a reel symbol: each game fills the field its own way (African
+ * Simba multiplies by its ways count and by 3 during free spins, `cherryhot` by a
+ * full first column), and most hardcode `1`.
+ *
+ * **`pay` is the unscaled figure.** The engine totals a spin as `Σ pay × mp`
+ * (`Wins.Gain()`, engine/game/slot/slot.go:40) and credits the wallet from that
+ * sum — `Pay` never carries the multiplier inside it. Anything adding `pay` on
+ * its own therefore reports a win smaller than the one actually deposited, and
+ * disagrees with the balance the engine itself writes.
+ *
+ * Every literal in the engine that sets `Pay` also sets `MP`, so a serialized
+ * `pay` always arrives with its `mp`; the `?? 1` only covers a row that carries
+ * neither, which pays nothing either way.
+ */
+type Win = {
+  /**
+   * Coins this row pays. Optional because a scatter that only triggers free
+   * spins arrives with no `pay` key at all; read it as "nothing won on this row"
+   * rather than assuming it is a number.
+   */
+  pay?: number;
+  mp?: number;
+  sym: number;
+  num: number;
+  /**
+   * Index of the payline this win belongs to; `0` for scatter and other unlined
+   * combinations. Also optional for the same reason `pay` is — the engine omits
+   * both on rows that only carry free spins or a jackpot id.
+   */
+  li?: number;
+  xy: [number, number][];
+};
 
 /**
  * Shape of an engine reply. `what` carries the engine's error message when set;
@@ -23,7 +59,7 @@ type Win = { pay: number; sym: number; num: number; li: number; xy: [number, num
  */
 type EngineReply = {
   what?: string;
-  /** Engine replied with no payload (e.g. a successful collect). */
+  /** Engine replied with no payload — an empty body rather than JSON. */
   empty?: boolean;
   gid: number;
   /**
@@ -31,11 +67,10 @@ type EngineReply = {
    * engine's marshaller swallows the sibling bet/sel fields — so they are
    * optional here and fetched separately when missing.
    */
-  game: { grid?: unknown; gain?: number; bet?: number; sel?: number };
+  game: { grid?: unknown; bet?: number; sel?: number };
   sel?: number;
   bet?: number;
   wallet: number;
-  gain: number;
   wins: Win[];
 };
 
@@ -155,26 +190,145 @@ function rgbaCss(alpha: number): string {
  * desync it from the DOM; the reel's real symbol is rendered by React underneath
  * and simply uncovered when the roll stops.
  */
-async function shuffleCell(
+/**
+ * A reel's stop signal. `at` is the symbol to come to rest on, set once the
+ * engine has answered; `halt` stops the reel without a new symbol, for a spin
+ * that failed — there is no grid to land on, and leaving the reels turning
+ * forever would be worse than showing the previous one.
+ *
+ * `at` is compared against `null` and never against truthiness: symbol index 0
+ * is a real symbol, and `!stop.at` would spin for ever on a game whose first
+ * symbol is the low pay.
+ */
+type Stop = { at: number | null; halt: boolean };
+
+/** The shortest a spin may feel, however fast the engine answers. */
+const MIN_SPIN = 0.7;
+/** Seconds between one reel coming to rest and the next one. */
+const REEL_STAGGER = 0.22;
+
+/** Cells that are part of a paying line this spin (used for the gem tiles). */
+function winCellsOf(wins: Win[], rows: number): Set<number> {
+  const set = new Set<number>();
+  for (const w of wins) for (const [c, r] of w.xy) set.add(c * rows + r);
+  return set;
+}
+
+/**
+ * Multiplier tiles, keyed by the cell they sit in (`col * rows + row`).
+ *
+ * These are reel cells, not overlays floating over the felt: the tile replaces
+ * the symbol in that cell for as long as the win is on screen, which is how a
+ * multiplier symbol actually reads on a physical reel. The engine still owns
+ * both halves of the contract — it chose the grid and it priced the line — so
+ * all this decides is *where* the tile sits and *which* of the pack's plates
+ * it wears. It never decides what the tile says: `mp` is whatever the engine
+ * multiplied that line by, and a line with `mp <= 1` contributes nothing
+ * rather than an invented factor.
+ *
+ * The tile goes on the line's *first* hit cell, not the midpoint of its hits.
+ * Midpoint reads better for a classic fixed payline, but "ways" games report a
+ * scattered set of positions (`li: 243` on African Simba) whose midpoint lands
+ * on empty felt between reels. The first cell is leftmost by construction, so
+ * it is always on a symbol that actually paid. When two multiplied lines start
+ * on the same cell the larger factor wins — one cell can only wear one tile,
+ * and both payouts are in the win total regardless.
+ *
+ * Module-level rather than a `useMemo` because `doSpin` needs the same answer
+ * *before* React renders: the reel's landing frame is built from this, and a
+ * tile that only existed after the handover would pop in a beat after its own
+ * reel stopped instead of rolling in with it.
+ */
+function multTilesOf(
+  wins: Win[],
+  cols: number,
+  rows: number,
+  alias: string,
+): Map<number, { mp: number; art?: string }> {
+  const tiles = new Map<number, { mp: number; art?: string }>();
+  for (const w of wins) {
+    const mp = w.mp ?? 1;
+    if (mp <= 1 || w.xy.length === 0) continue;
+    const [cx, cy] = w.xy[0];
+    if (!Number.isFinite(cx) || !Number.isFinite(cy)) continue;
+    if (cx < 0 || cy < 0 || cx >= cols || cy >= rows) continue;
+    const key = cx * rows + cy;
+    const prev = tiles.get(key);
+    if (!prev || mp > prev.mp) tiles.set(key, { mp, art: multTile(mp, alias) });
+  }
+  return tiles;
+}
+
+/**
+ * Tumbles one cell until it is told where to stop.
+ *
+ * Driven by a stop signal rather than a step count, so the reels can start the
+ * instant the player presses spin and only learn their destination when the
+ * reply lands. Tumbling during the round trip is the point: a cabinet that sits
+ * still while the request is in flight reads as a dead button.
+ *
+ * A motion blur is painted for as long as the symbol is changing and eased off
+ * as the reel settles — the same cue a physical reel gives, and what stops a
+ * fast tumble from reading as a strobe of almost-legible symbols.
+ *
+ * The cell's *settled* symbol is hidden for as long as this runs. `.cell-roll`
+ * only paints the symbol currently tumbling — it has no background — so React's
+ * own render underneath shows straight through it. That render is the previous
+ * result at the moment spin is pressed and the new grid as soon as the reply
+ * lands (`setGrid` runs while the reel is still turning), which reads as the
+ * final symbol pinned in place with other symbols drawing over it rather than
+ * as a reel turning. Revealing it again is the handover, per cell, on the frame
+ * the reel lands.
+ */
+async function tumbleCell(
   roll: HTMLElement | null,
-  final: number,
-  steps: number,
   count: number,
   htmlFor: (v: number) => string,
-  onTick: () => void
+  landFor: (v: number) => string,
+  onTick: () => void,
+  stop: Stop,
 ) {
   if (!roll) return;
-  for (let i = 0; i < steps; i++) {
-    roll.innerHTML = htmlFor(Math.floor(Math.random() * count));
-    onTick();
-    await gsap.fromTo(roll, { y: -16 }, { y: 0, duration: 0.07, ease: "power1.out" });
+  /* Hide React's children, not the cell: the frame and felt are painted by the
+     cell element itself and stay up. `visibility` inherits, so the cell opts out
+     once and the roll opts back in — rather than every possible child of the
+     cell (`.cell-sym`, `.mult-tile`, whatever `sym()` returns) having to be
+     named here, which would break silently the next time one is added. */
+  const cell = roll.parentElement;
+  cell?.style.setProperty("visibility", "hidden");
+  roll.style.setProperty("visibility", "visible");
+  try {
+    roll.style.filter = "blur(1.6px)";
+    while (stop.at === null && !stop.halt) {
+      roll.innerHTML = htmlFor(Math.floor(Math.random() * count));
+      onTick();
+      await gsap.fromTo(roll, { y: -16 }, { y: 0, duration: 0.07, ease: "power1.out" });
+    }
+    if (stop.halt) {
+      await gsap.to(roll, { opacity: 0, duration: 0.15 });
+      return;
+    }
+    /* The landing frame, not a random symbol: `landFor` resolves the art this
+       cell actually settles on — a multiplier tile or a winning gem when the
+       reply put one there, the plain symbol otherwise. Landing on the tile is
+       what makes the multiplier *part of the reel* rather than a badge that
+       appears over it a beat later: it drops in with the same y/scale the
+       symbol does, and the handover below uncovers an identical tile underneath. */
+    roll.innerHTML = landFor(stop.at!);
+    await gsap.fromTo(roll, { y: -22, scale: 1.2 }, { y: 0, scale: 1, duration: 0.3, ease: "back.out(2)" });
+    // Blur eases off over the landing rather than snapping to sharp.
+    await gsap.to(roll, { filter: "blur(0px)", duration: 0.18, ease: "power2.out" });
+    // Hand over to the symbol React rendered for this spin.
+    await gsap.to(roll, { opacity: 0, duration: 0.12 });
+  } finally {
+    /* Empty the overlay first, then uncover — the reverse would flash two
+       symbols in one cell. Reached on every exit, including a tween that
+       rejects, because a cell left hidden stays hidden until the next spin. */
+    roll.innerHTML = "";
+    gsap.set(roll, { opacity: 1, filter: "none" });
+    roll.style.removeProperty("visibility");
+    cell?.style.removeProperty("visibility");
   }
-  roll.innerHTML = htmlFor(final);
-  await gsap.fromTo(roll, { y: -22, scale: 1.2 }, { y: 0, scale: 1, duration: 0.3, ease: "back.out(2)" });
-  // Hand over to the symbol React rendered for this spin.
-  await gsap.to(roll, { opacity: 0, duration: 0.12 });
-  roll.innerHTML = "";
-  gsap.set(roll, { opacity: 1 });
 }
 
 export default function Player({ uid, alias }: { uid: number; alias: string }) {
@@ -185,7 +339,6 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
   const [wallet, setWallet] = useState(0);
   const [bet, setBet] = useState(1);
   const [sel, setSel] = useState(0);
-  const [gain, setGain] = useState(0);
   const [lastWin, setLastWin] = useState(0);
   const [wins, setWins] = useState<Win[]>([]);
   const [busy, setBusy] = useState(false);
@@ -326,38 +479,177 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
     setBusy(true);
     setWins([]);
     if (soundOn) audio.reelStop();
-    const j = await enginePost("slot/spin", { gid, bet });
-    const finals = decodeGrid(j?.game?.grid);
-    if (!j || j.what || finals.length === 0) { setBusy(false); setAuto(false); setNotice(`⚠️ ${j?.what ?? "engine returned no data"}`); return; }
 
-    const flat: number[] = [];
-    finals.forEach((col) => col.forEach((v) => flat.push(v)));
     const px = assets.pixelGrid ? ' style="image-rendering:pixelated"' : "";
     const htmlFor = (v: number) =>
       `<img src="${assets.images[v % assets.images.length]}" alt="" class="h-full w-full object-contain p-1"${px} />`;
-    await Promise.all(cellRefs.current.map((c, i) =>
-      shuffleCell(rollRefs.current[i], flat[i], 5 + (i % 3), assets.images.length, htmlFor, () => { if (soundOn && Math.random() < 0.3) audio.spinTick(); })
-    ));
-    if (soundOn) audio.reelStop();
+    /**
+     * Art each cell actually settles on, keyed by flat cell index.
+     *
+     * Empty until the reply lands — the reels are already turning by then, and
+     * the landing frame is only needed once a reel is told where to stop. A
+     * multiplier tile or a winning gem goes in here so the reel drops onto the
+     * *same* art React will uncover, instead of landing on a plain symbol and
+     * swapping for the tile a beat later.
+     */
+    const landing = new Map<number, string>();
+    const landFor = (i: number, v: number) => {
+      const art = landing.get(i);
+      return art
+        ? `<img src="${art}" alt="" class="h-full w-full object-contain p-1"${px} />`
+        : htmlFor(v);
+    };
 
-    setGrid(finals);
-    applyWallet(j.wallet);
-    setGain(j.game.gain ?? j.gain ?? 0);
-    if (typeof j.game.bet === "number" && j.game.bet > 0) setBet(j.game.bet);
-    if (typeof j.game.sel === "number" && j.game.sel > 0) setSel(j.game.sel);
-    const pay = (j.wins ?? []).reduce((a: number, w: Win) => a + w.pay, 0);
-    setLastWin(pay);
-    setWins(j.wins ?? []);
-    if (pay > 0) {
-      if (soundOn) audio.win();
-      gsap.fromTo(".play-cell", { scale: 1 }, { scale: 1.12, duration: 0.15, repeat: 3, yoyo: true, stagger: 0.02 });
-      if (pay >= Math.max(stake * 5, 20)) {
-        setBigWin(pay);
-        try { confetti({ particleCount: 120, spread: 75, origin: { y: 0.6 } }); } catch { /* non-fatal */ }
+    /* The reels start before the request is even on the wire. The old sequence
+       waited for the reply and *then* animated, so the cabinet sat frozen for
+       the whole round trip — the "reel spin delay" — and only then burst into
+       a fixed-length tumble. Stopping is a signal now, not a step count. */
+    const started = performance.now();
+    const stops: Stop[] = cellRefs.current.map(() => ({ at: null, halt: false }));
+    const tumbling = cellRefs.current.map((_, i) =>
+      tumbleCell(rollRefs.current[i], assets.images.length, htmlFor, (v) => landFor(i, v), () => {
+        if (soundOn && Math.random() < 0.3) audio.spinTick();
+      }, stops[i]),
+    );
+
+    /* Every exit from this block has to stop the reels, so it runs in a
+       `finally`. The happy path stops them by assigning `at`; the two unhappy
+       ones — a request that throws, and a reply carrying no grid — have nothing
+       to assign. That mattered less when a tumble was a fixed step count that
+       ended on its own: now it ends only when it is told to, and an unhalted
+       reel would spin for ever while auto-spin, having cleared `busy` a second
+       later, started a *second* loop writing to the same cell. */
+    /* The payoff is assembled inside the `try` but played after the `finally`,
+       so it has to be reachable from both. Stays null on a spin that never got
+       a usable reply: that path returns out of the `try` and never plays it. */
+    let showResult: (() => void) | null = null;
+    try {
+      const j = await enginePost("slot/spin", { gid, bet });
+      const finals = decodeGrid(j?.game?.grid);
+      // Read the row count off the reply rather than off `rows`: that state is
+      // declared below this function, and pulling it in here would make the spin
+      // depend on a value that has not been initialised when auto-spin starts.
+      const rowsNow = finals[0]?.length ?? 0;
+      if (!j || j.what || finals.length === 0 || rowsNow === 0) {
+        setBusy(false); setAuto(false); setNotice(`⚠️ ${j?.what ?? "engine returned no data"}`);
+        return;
       }
+
+      /* The grid goes into React *now*, while every cell is still covered by its
+         tumbling reel. The handover is per cell and the first column comes to
+         rest roughly a fifth of a second before the release loop below has
+         finished queueing the last one, so React has to already be holding this
+         spin's symbols before any cell uncovers — otherwise a reel lands on the
+         *previous* spin's symbol and swaps it a beat later, which is the same
+         stuck item the tumble has just spent a second hiding. Publishing early
+         also gives the new art a head start on loading, so an uncovering cell
+         never flashes an image that has not arrived. */
+      setGrid(finals);
+      /* The win is published with the grid, not after the reels land: the cell
+         has to uncover the very tile its reel just dropped onto, and a tile that
+         only existed after the handover would pop in a beat after its own reel
+         stopped. This publishes *art* only — everything that reveals a win to
+         the player is gated on `busy` or deferred to `showResult` below. */
+      setWins(j.wins ?? []);
+      if (typeof j.game.bet === "number" && j.game.bet > 0) setBet(j.game.bet);
+      if (typeof j.game.sel === "number" && j.game.sel > 0) setSel(j.game.sel);
+
+      const flat: number[] = [];
+      finals.forEach((col) => col.forEach((v) => flat.push(v)));
+
+      /* Fill the landing art with the same helpers React renders from, so the
+         two cannot drift apart: the plate a reel lands on and the plate a cell
+         uncovers must be identical, or the handover would visibly swap them. */
+      const spinWins = j.wins ?? [];
+      const spinCells = winCellsOf(spinWins, rowsNow);
+      const spinTiles = multTilesOf(spinWins, finals.length, rowsNow, alias);
+      for (let i = 0; i < flat.length; i++) {
+        const tile = spinTiles.get(i);
+        if (tile?.art) landing.set(i, tile.art);
+        else if (spinCells.has(i) && assets.gemTiles) {
+          landing.set(i, assets.gemTiles[flat[i] % assets.gemTiles.length]);
+        }
+      }
+
+      /* Land left to right, never two reels at once. Each release takes the
+         later of its own deadline (MIN_SPIN + column × REEL_STAGGER from the
+         moment spin started) and one stagger gap after the previous reel went.
+         Both terms are needed: on a *fast* reply the deadline is what holds
+         each reel, and on a slow one every deadline has already passed — with
+         only that term the whole cabinet would arrive as one thud, which is
+         precisely the abrupt stop this replaces. */
+      let lastRelease = 0;
+      await Promise.all(
+        Array.from({ length: finals.length }, (_, c) => (async () => {
+          const dueAt = Math.max(
+            started + (MIN_SPIN + c * REEL_STAGGER) * 1000,
+            lastRelease + REEL_STAGGER * 1000,
+            performance.now(),
+          );
+          lastRelease = dueAt;
+          const wait = dueAt - performance.now();
+          if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+          for (let r = 0; r < rowsNow; r++) {
+            const i = c * rowsNow + r;
+            if (i < stops.length && i < flat.length) stops[i].at = flat[i];
+          }
+        })()),
+      );
+
+      /* Everything that *reports* the result waits until the `finally` below has
+         seen every reel to rest. `setGrid`/`setWins` above could not wait — the
+         cells needed the art before they uncovered — but this can, and waiting
+         is the point: the payline, the wallet, the win sound and the big-win
+         burst are the payoff, and firing them while the right-hand reels are
+         still turning both spoils the spin and draws a payline over symbols
+         that are about to move. Built as a closure so it survives the `finally`
+         awaiting the tumble, and played once, after.
+
+         Two things have to be true of `pay` at once. First, not every row in
+         `wins` is a paid line — a scatter that only awards free spins comes back
+         as `{ sym, num, xy, fs }` with no `pay` key at all (the engine tags it
+         `omitempty`), so a bare `reduce((a, w) => a + w.pay, 0)` turns the whole
+         spin total into `NaN`, which then poisons the spin log, the player's
+         `totalWin` and the "last win" readout. Coerce, do not assume. Second,
+         `pay` is the *unscaled* figure for the row: the engine settles a spin as
+         `Σ pay × mp` (`Wins.Gain()`), so summing `pay` alone under-reports every
+         spin where a multiplier landed, leaving the header, the history, the
+         big-win threshold and the persisted spin log disagreeing with the
+         balance the engine deposited. `mp` is absent only for a row that carries
+         no `pay`, where ×1 and ×0 give the same answer. */
+      const pay = (j.wins ?? []).reduce(
+        (a: number, w: Win) => a + (typeof w.pay === "number" ? w.pay * (w.mp ?? 1) : 0),
+        0,
+      );
+      showResult = () => {
+        applyWallet(j.wallet);
+        setLastWin(pay);
+        if (pay > 0) {
+          if (soundOn) audio.win();
+          gsap.fromTo(".play-cell", { scale: 1 }, { scale: 1.12, duration: 0.15, repeat: 3, yoyo: true, stagger: 0.02 });
+        }
+        /* Written on *every* spin, not only when it qualifies. `bigWin` is not
+           cleared anywhere else, so a losing spin used to leave the previous
+           burst on screen — and with that overlay now covering the reels, it
+           would have covered them for the spin after it too. */
+        const isBig = pay >= Math.max(stake * 5, 20);
+        setBigWin(isBig ? pay : 0);
+        if (isBig) {
+          try { confetti({ particleCount: 120, spread: 75, origin: { y: 0.6 } }); } catch { /* non-fatal */ }
+        }
+        setHistory((h) => [{ bet: stake, win: pay, time: new Date().toLocaleTimeString() }, ...h].slice(0, 20));
+        logSpin(alias, stake, pay);
+      };
+    } finally {
+      /* No-op on the happy path — every reel already has its `at`. Anything
+         still turning is told to stop where it is, so the reels hand back to
+         React's own symbols instead of tumbling through an error screen. */
+      for (const s of stops) if (s.at === null && !s.halt) s.halt = true;
+      await Promise.all(tumbling);
     }
-    setHistory((h) => [{ bet: stake, win: pay, time: new Date().toLocaleTimeString() }, ...h].slice(0, 20));
-    logSpin(alias, stake, pay);
+    // Every reel has stopped and handed back to React. Only now is the spin a result.
+    if (soundOn) audio.reelStop();
+    showResult?.();
   }
 
   async function safeSpin() {
@@ -380,44 +672,29 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
   }, [auto, busy, gid]);
 
   /**
-   * Gamble ladder. The engine wagers the whole pending gain against the
-   * chosen multiplier (1 < mult <= 10) and only pays out when the balance can
-   * cover `gain × mult`, so multipliers we cannot cover are disabled in the UI.
+   * The engine prices a spin and credits it in the same call — there is no
+   * pending amount sitting on the other side for a player to act on, so the
+   * screen presents the win and moves on. `slot.DropMultiplier` is what makes
+   * a multiplier worth looking for: it lands on the reel itself.
    */
-  async function gamble(mult: Multiplier) {
-    if (busy || gid == null || gain <= 0) return;
-    if (wallet < gain * mult) {
-      setNotice(`⚠️ ×${mult} needs ${gain * mult} in your balance to gamble`);
-      return;
-    }
-    setBusy(true);
-    const risk = gain;
-    const j = await enginePost("slot/doubleup", { gid, mult });
-    if (!j || j.what || j.gain == null) { setNotice(`⚠️ ${j?.what ?? "engine returned no result"}`); setBusy(false); return; }
-    const won = (j.gain ?? 0) > risk;
-    setGain(j.gain ?? 0);
-    applyWallet(j.wallet);
-    setLastWin(j.gain ?? 0);
-    setNotice(won ? `🎉 Won ×${mult}! ${risk} → ${j.gain}` : `💔 Lost the gamble — ${risk} staked`);
-    if (soundOn) {
-      if (won) audio.win();
-      else audio.lose();
-    }
-    setBusy(false);
-  }
-
-  async function collect() {
-    if (gid == null) return;
-    // Collect only clears the pending gamble state; the engine answers with a
-    // bare `null` on success, so an empty reply means "done", not "failed".
-    const j = await enginePost("slot/collect", { gid });
-    if (j?.what) { setNotice(`⚠️ ${j.what}`); return; }
-    if (typeof j?.wallet === "number") applyWallet(j.wallet);
-    setGain(0);
-    setNotice("");
-  }
 
   const rows = grid?.[0]?.length ?? 0;
+  /**
+   * A phone held upright.
+   *
+   * Watched rather than read from `window` at render time: the server has no
+   * window, and a resize has to re-render the grid anyway. Read inside a
+   * `matchMedia` effect, same as the rotate prompt, so the two agree on what
+   * "portrait" means.
+   */
+  const [portrait, setPortrait] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 639px) and (orientation: portrait)");
+    const sync = () => setPortrait(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
   /**
    * The smallest stake the engine will accept, and the largest the wallet covers.
    *
@@ -427,11 +704,48 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
    */
   const minBet = 1;
   // Cells that are part of a paying line this spin (used for the gem tiles).
-  const winCells = useMemo(() => {
-    const set = new Set<number>();
-    for (const w of wins) for (const [c, r] of w.xy) set.add(c * rows + r);
-    return set;
-  }, [wins, rows]);
+  const winCells = useMemo(() => winCellsOf(wins, rows), [wins, rows]);
+
+  /**
+   * Multiplier tiles, keyed by the cell they sit in. See `multTilesOf` — the
+   * rule lives there because `doSpin` needs the same answer before React
+   * renders, in order to build each reel's landing frame.
+   */
+  const multTiles = useMemo(() => multTilesOf(wins, cols, rows, alias), [wins, cols, rows, alias]);
+
+  /**
+   * The glow pulse on the landed tiles.
+   *
+   * Deliberately *not* the entrance: the reel now drops onto the tile itself,
+   * so a `scale 0.3 → 1` pop would make the tile vanish and regrow the instant
+   * its own reel uncovered it. What is left is the light — staggered in reel
+   * order, and held off until `busy` clears, because the tiles are published
+   * with the grid (see `setWins` in `doSpin`) and this must not burn its
+   * one-and-a-half seconds behind cells that are still covered. The context
+   * reverts the styles when the win clears, so an unmultiplied next spin
+   * starts from nothing.
+   */
+  useEffect(() => {
+    const root = machineRef.current;
+    if (!root || busy || multTiles.size === 0) return;
+    const tiles = root.querySelectorAll<HTMLElement>(".mult-tile");
+    if (tiles.length === 0) return;
+    const ctx = gsap.context(() => {
+      gsap.fromTo(
+        tiles,
+        { boxShadow: "0 0 0 rgba(250,204,21,0)" },
+        {
+          boxShadow: "0 0 26px rgba(250,204,21,0.95)",
+          duration: 0.45,
+          ease: "sine.inOut",
+          repeat: 3,
+          yoyo: true,
+          stagger: 0.08,
+        },
+      );
+    }, root);
+    return () => ctx.revert();
+  }, [multTiles, busy]);
 
   if (error) return <p className="mt-20 text-rose-400">{error}</p>;
   if (!grid) return <Loader label={`DEALING ${alias.toUpperCase()}…`} />;
@@ -465,40 +779,75 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
   );
 
   return (
-    <div className="flex w-full max-w-5xl flex-col items-center gap-5 text-white">
+    /*
+     * The cabinet is a fixed-layout instrument, not a document: it must occupy
+     * the whole viewport with no scrolling, so the root is a 100dvh column that
+     * hands its leftover height to the reel window. `min-h-0` on the two flex
+     * children below is what actually lets them shrink — without it a flex item
+     * refuses to go below its content height and the console gets pushed off
+     * screen on short displays.
+     *
+     * `max-w-[min(100%,1100px)]` replaces the old `max-w-5xl`: the cabinet now
+     * fills a large display instead of hugging 960px of it, but is still capped
+     * so a 4K monitor does not stretch 5 reels across two feet of felt.
+     */
+    <div
+      className="relative isolate flex h-[100dvh] w-full select-none flex-col items-center justify-center gap-3 overflow-hidden bg-black p-2 text-white sm:gap-4 sm:p-4"
+      style={{
+        backgroundImage: scene.backdrop,
+        backgroundSize: "cover",
+        backgroundPosition: "center",
+      }}
+    >
+      {/* Full-bleed scene art behind everything.
+          `isolate` is load-bearing: it makes the root a stacking context, so
+          this `-z-10` layer lands *above* the root's own background and below
+          every child. Without it the negative layer drops out of the root's
+          context entirely and hides behind the page's `bg-black` — which is how
+          a pack that ships a perfectly good backdrop ended up rendering black. */}
+      {scene.image && (
+        <img
+          src={scene.image}
+          alt=""
+          aria-hidden
+          className="pointer-events-none absolute inset-0 -z-10 h-full w-full object-cover"
+        />
+      )}
       {/* Header bar */}
-      <header className="flex w-full flex-wrap items-center justify-between gap-3 rounded-2xl border border-sky-500/25 bg-[#3b4f96]/75 p-3 backdrop-blur-xl shadow-[0_10px_30px_rgba(0,0,0,0.8)] sm:gap-4 sm:p-4">
-        <div className="flex min-w-0 items-center gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-tr from-sky-600 to-sky-300 shadow-lg shadow-sky-500/30">
+      <header className="flex w-full max-w-[min(100%,1100px)] shrink-0 flex-nowrap items-center justify-between gap-3 rounded-2xl border border-sky-500/25 bg-[#3b4f96]/75 p-3 backdrop-blur-xl shadow-[0_10px_30px_rgba(0,0,0,0.8)] sm:gap-4 sm:p-4 [@media(max-height:560px)]:gap-1 [@media(max-height:560px)]:p-1.5 [@media(max-height:560px)]:rounded-xl">
+        <div className="flex min-w-0 items-center gap-3 [@media(max-height:560px)]:gap-1.5">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-tr from-sky-600 to-sky-300 shadow-lg shadow-sky-500/30 [@media(max-height:560px)]:h-7 [@media(max-height:560px)]:w-7">
             {assets.character
               ? <img src={assets.character} alt="" className="h-full w-full rounded-full object-contain" />
               : <span className="text-xl">👑</span>}
           </div>
+          {/* The subtitle is the first thing to go when height is scarce — the
+              machine name and the balance matter, the strapline does not. */}
           <div className="min-w-0">
-            <h1 className="truncate bg-gradient-to-br from-sky-200 via-sky-400 to-blue-600 bg-clip-text text-base font-black tracking-wider text-transparent sm:text-xl font-cinzel">
+            <h1 className="truncate bg-gradient-to-br from-sky-200 via-sky-400 to-blue-600 bg-clip-text text-base font-black tracking-wider text-transparent sm:text-xl font-cinzel [@media(max-height:560px)]:text-sm">
               {alias.toUpperCase()}
             </h1>
-            <p className="text-[10px] uppercase tracking-widest text-sky-200/50">Nexus-K Luxury Slots</p>
+            <p className="hidden text-[10px] uppercase tracking-widest text-sky-200/50 [@media(max-height:560px)]:hidden sm:block">Nexus-K Luxury Slots</p>
           </div>
         </div>
-        <div className="flex w-full items-center justify-between gap-2 sm:w-auto sm:justify-end sm:gap-3">
-          <div className="min-w-0 flex-1 rounded-xl border border-sky-500/30 bg-black/60 px-2 py-1.5 text-center sm:min-w-[130px] sm:flex-none sm:px-4 sm:py-2">
+        <div className="flex w-full items-center justify-between gap-2 sm:w-auto sm:justify-end sm:gap-3 [@media(max-height:560px)]:gap-1">
+          <div className="min-w-0 flex-1 rounded-xl border border-sky-500/30 bg-black/60 px-2 py-1.5 text-center sm:min-w-[130px] sm:flex-none sm:px-4 sm:py-2 [@media(max-height:560px)]:py-0.5">
             <span className="block text-[10px] font-semibold uppercase text-sky-400/70">Balance</span>
             {/* Counts to the new figure and flashes green or rose for the direction of
                 travel, so a win or a loss is legible without reading the digits. */}
             <span
               data-testid="game-balance"
-              className="block truncate font-mono text-base font-bold drop-shadow-[0_0_8px_rgba(56,189,248,0.7)] sm:text-xl"
+              className="block truncate font-mono text-base font-bold drop-shadow-[0_0_8px_rgba(56,189,248,0.7)] sm:text-xl [@media(max-height:560px)]:text-sm"
             >
               💎 <CountUp value={wallet} />
             </span>
           </div>
-          <div className="min-w-0 flex-1 rounded-xl border border-sky-500/30 bg-black/60 px-2 py-1.5 text-center sm:min-w-[130px] sm:flex-none sm:px-4 sm:py-2">
+          <div className="min-w-0 flex-1 rounded-xl border border-sky-500/30 bg-black/60 px-2 py-1.5 text-center sm:min-w-[130px] sm:flex-none sm:px-4 sm:py-2 [@media(max-height:560px)]:py-0.5">
             <span className="block text-[10px] font-semibold uppercase text-emerald-400/70">Last Win</span>
-            <span className="block truncate font-mono text-base font-bold text-emerald-400 sm:text-xl">+{lastWin}</span>
+            <span className="block truncate font-mono text-base font-bold text-emerald-400 sm:text-xl [@media(max-height:560px)]:text-sm">+{lastWin}</span>
           </div>
-          <button onClick={() => setShowPaytable(true)} className="flex h-10 w-10 items-center justify-center rounded-xl border border-sky-500/30 bg-sky-500/10 text-sky-300 transition hover:bg-sky-500/20" title="Paytable">☰</button>
-          <button onClick={() => setSoundOn(!soundOn)} className="flex h-10 w-10 items-center justify-center rounded-xl border border-sky-500/30 bg-sky-500/10 text-sky-300 transition hover:bg-sky-500/20" title="Sound">{soundOn ? "🔊" : "🔇"}</button>
+          <button onClick={() => setShowPaytable(true)} className="flex h-10 w-10 items-center justify-center rounded-xl border border-sky-500/30 bg-sky-500/10 text-sky-300 transition hover:bg-sky-500/20 [@media(max-height:560px)]:h-10 [@media(max-height:560px)]:w-10" title="Paytable">☰</button>
+          <button onClick={() => setSoundOn(!soundOn)} className="flex h-10 w-10 items-center justify-center rounded-xl border border-sky-500/30 bg-sky-500/10 text-sky-300 transition hover:bg-sky-500/20 [@media(max-height:560px)]:h-10 [@media(max-height:560px)]:w-10" title="Sound">{soundOn ? "🔊" : "🔇"}</button>
         </div>
       </header>
 
@@ -506,7 +855,9 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
       <div
         ref={machineRef}
         data-scene={scene.style}
-        className="@container relative w-full overflow-hidden rounded-3xl border-2 p-4 shadow-2xl sm:p-8"
+        /* `min-h-0` is load-bearing: it is what lets this frame shrink below its
+           content so the console below stays on screen on a short display. */
+        className="@container relative flex min-h-0 w-full max-w-[min(100%,1100px)] flex-1 flex-col overflow-hidden rounded-3xl border-2 p-4 shadow-2xl sm:p-8 [@media(max-height:560px)]:p-2 [@media(max-height:560px)]:rounded-2xl"
         style={{
           borderColor: scene.rim,
           backgroundImage: scene.cabinet,
@@ -607,7 +958,10 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
 
         {/* Marquee */}
         <div
-          className="relative mb-3 flex items-center justify-between gap-2 rounded-xl border p-2 px-4 text-center"
+          /* The cabinet-name strip is decorative, so it yields its height to the reels
+           on short viewports. That band is worth ~30px, which on a landscape
+           phone is the difference between readable symbols and slivers. */
+          className="relative mb-3 hidden shrink-0 items-center justify-between gap-2 rounded-xl border p-2 px-4 text-center [@media(max-height:560px)]:hidden [@media(min-height:561px)]:flex"
           style={{ borderColor: scene.rim, backgroundImage: scene.felt }}
         >
           <span className="hidden text-xs font-bold uppercase tracking-widest sm:inline" style={{ color: t.accent }}>{sel} PAYLINES</span>
@@ -625,28 +979,23 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
         </div>
 
         {/* Reel window — themed felt + soft top light */}
+        {/* The felt takes whatever height the cabinet has left (`flex-1 min-h-0`)
+            and centres the reels in it. Cells below divide *that* height rather
+            than a hardcoded pixel count, so the cabinet scales with the viewport
+            instead of overflowing short displays and stranding black bars beside
+            a fixed-size reel window on large ones. */}
         <div
-          className="relative w-full overflow-hidden rounded-xl border-2"
+          /* `container-type: size` turns this box into the reference for `cqw`/`cqh`
+             below, which is what lets the reel grid fit itself to *both* axes:
+             see the `min()` on the grid. */
+          className="@felt relative mx-auto flex min-h-0 w-full max-h-full flex-1 flex-col justify-center overflow-hidden rounded-xl border-2 [container-type:size]"
           style={{
             borderColor: scene.rim,
             backgroundImage: scene.felt,
             boxShadow: `inset 0 0 40px rgba(0,0,0,0.75), 0 0 30px ${scene.rim}`,
           }}
         >
-          {/* payline SVG overlay */}
-          <svg className="pointer-events-none absolute inset-0 z-20 h-full w-full" viewBox="0 0 100 100" preserveAspectRatio="none">
-            {wins.map((w, i) => (
-              <polyline
-                key={i}
-                points={w.xy.map(([x, y]) => `${((x - 0.5) / cols) * 100},${((y - 0.5) / rows) * 100}`).join(" ")}
-                fill="none"
-                stroke={t.accent}
-                strokeWidth="2"
-                strokeLinejoin="round"
-                style={{ filter: `drop-shadow(0 0 5px ${t.accent})` }}
-              />
-            ))}
-          </svg>
+          
 
           {/* Pixel-art packs get a faint scanline grid over the felt */}
           {assets.pixelGrid && (
@@ -660,9 +1009,10 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
             />
           )}
 
-          {/* Big win overlay */}
-          {bigWin > 0 && (
-            <div className="absolute inset-0 z-30 flex flex-col items-center justify-center overflow-hidden bg-black/80 backdrop-blur-md">
+          {/* Big win overlay — gated on `busy` so a burst that was never
+              collected cannot sit over the next spin. */}
+          {bigWin > 0 && !busy && (
+            <div className="absolute inset-0 z-40 flex flex-col items-center justify-center overflow-hidden bg-black/80 backdrop-blur-md">
               {assets.bigwinDecor && (
                 <img src={assets.bigwinDecor} alt="" className="pointer-events-none absolute inset-0 h-full w-full object-cover opacity-60" />
               )}
@@ -702,7 +1052,38 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
             </div>
           )}
 
-          <div className="relative flex gap-px p-2">
+          {/* The win is presented by the reel grid and the counters themselves —
+              there is no pending amount to act on, so nothing covers the reels
+              between spins. */}
+
+          {/* Reel grid — sized by aspect ratio, fitted to whichever axis runs out first.
+              `h-full max-w-full` plus an explicit `cols/rows` ratio means the reels
+              stay square and the grid is bounded by the smaller of the two
+              available dimensions: it can never overflow the felt, and it never
+              leaves the window half-empty. Cells then need no height of their own
+              — they just divide the grid, which is what makes the cabinet scale
+              smoothly instead of snapping to fixed pixel rows. */}
+          <div
+            /* `min()` over the felt's own container-query dimensions picks the axis
+               that binds first, so the grid is always the largest box of this aspect
+               ratio that fits — filling a wide display, shrinking on a short one,
+               and overflowing neither. Cells are `flex-1` with no height of their
+               own, so they follow the grid exactly.
+
+               The one place that rule is wrong is a tall phone held upright: there
+               the grid is width-limited, so it ends up much shorter than the felt
+               and strands empty felt above and below. There the cells are allowed
+               to stretch past the nominal ratio instead, spending the spare height
+               on taller reels. Symbols are `object-contain`, so only the gaps
+               between them grow — no symbol is ever distorted. */
+            className="relative mx-auto flex gap-px p-2 [@media(max-height:560px)]:p-1"
+            style={{
+              width: `min(100cqw, calc(100cqh * ${cols || 1} / ${rows || 1}))`,
+              height: `min(100cqh, calc(100cqw * ${rows || 1} / ${cols || 1}))`,
+              // Portrait phones only: tall and narrow, so height is the spare axis.
+              ...(portrait ? { height: "100cqh" } : null),
+            }}
+          >
             {assets.emptyFrame && (
               <div
                 aria-hidden
@@ -710,29 +1091,95 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
                 style={{ backgroundImage: `url(${assets.emptyFrame})`, backgroundSize: "100% 100%" }}
               />
             )}
+
+            {/* Win overlays, inside the grid rather than the felt.
+                They are positioned in a 0-100 space derived from `cols`/`rows`,
+                so their containing block has to be exactly the box those
+                coordinates describe. While this was a sibling of the grid the
+                badges and paylines drifted off the reels the moment the grid
+                became narrower than the felt — the grid is now sized to fit
+                inside the felt, so it usually is. Same box, same maths, aligned. */}
+            <svg
+              className="pointer-events-none absolute inset-0 z-20 h-full w-full"
+              viewBox="0 0 100 100"
+              preserveAspectRatio="none"
+            >
+              {/* Gated on `busy`: `wins` is published with the grid so the cells
+                  can uncover their own tile, which would otherwise draw these
+                  lines over reels that are still turning. */}
+              {!busy && wins.map((w, i) => (
+                <polyline
+                  key={i}
+                  points={w.xy.map(([x, y]) => `${((x - 0.5) / cols) * 100},${((y - 0.5) / rows) * 100}`).join(" ")}
+                  fill="none"
+                  stroke={t.accent}
+                  strokeWidth="2"
+                  strokeLinejoin="round"
+                  style={{ filter: `drop-shadow(0 0 5px ${t.accent})` }}
+                />
+              ))}
+            </svg>
+
             {grid.map((col, c) => (
-              <div key={c} className="relative flex flex-1 flex-col gap-px" style={{ borderRight: `1px solid ${scene.rim}` }}>
+              <div key={c} className="relative flex min-h-0 flex-1 flex-col gap-px" style={{ borderRight: `1px solid ${scene.rim}` }}>
                 {col.map((v, r) => {
                   const idx = c * rows + r;
                   // Winning cells swap to the framed gem tile when the pack has one.
                   const gem = winCells.has(idx) && assets.gemTiles
                     ? assets.gemTiles[v % assets.gemTiles.length]
                     : null;
+                  // A multiplier the engine priced onto this cell takes the whole
+                  // cell: it *is* the symbol here, which is what makes it native
+                  // to the grid rather than a badge hovering over the felt.
+                  const tile = multTiles.get(idx);
                   return (
                     <div key={r} ref={(el) => { cellRefs.current[idx] = el; }}
-                      className="play-cell relative flex items-center justify-center text-4xl sm:text-5xl"
+                      className="play-cell relative flex min-h-0 flex-1 items-center justify-center text-2xl sm:text-4xl [@media(max-height:520px)]:text-xl lg:text-5xl"
                       style={{
-                        height: `clamp(64px, ${380 / rows}px, 120px)`,
+                        /* The old height was `clamp(64px, 380/rows, 120px)` — a
+                           fixed pixel budget that ignored the viewport entirely,
+                           which is what left the cabinet pinned to the top-left
+                           with dead space beside it. The grid's aspect ratio now
+                           owns the geometry and each cell simply divides it, so
+                           the cabinet scales with the viewport. The floor keeps
+                           a 12-row grid from collapsing into unreadable slivers. */
+                        minHeight: "0.75rem",
                         backgroundImage: assets.cellFrame ? `url(${assets.cellFrame})` : undefined,
                         backgroundSize: assets.cellFrame ? "100% 100%" : undefined,
                         backgroundRepeat: "no-repeat",
+                        /* The glow is painted by the cell itself, which the
+                           tumble does *not* hide — so it is gated on `busy` for
+                           the same reason the payline above is. */
                         boxShadow: assets.cellFrame
-                          ? gem
+                          ? gem && !busy
                             ? `0 0 20px ${t.accent}`
                             : undefined
                           : `inset 0 0 22px rgba(0,0,0,0.5)`,
                       }}>
-                      {gem ? (
+                      {tile ? (
+                        <span
+                          className="mult-tile block h-full w-full overflow-hidden rounded-lg"
+                          data-testid="line-mult"
+                        >
+                          {tile.art ? (
+                            <img
+                              src={tile.art}
+                              alt={`×${tile.mp} multiplier`}
+                              className="h-full w-full object-contain p-1"
+                            />
+                          ) : (
+                            /* No plate for this factor (a pack ships only the tiles
+                               it has art for) — legible text rather than dropping
+                               a multiplier the engine actually paid. */
+                            <span
+                              className="flex h-full w-full items-center justify-center rounded-lg border border-amber-300/70 bg-black/70 font-mono text-xl font-black text-amber-300 sm:text-3xl"
+                              style={{ textShadow: `0 0 10px ${t.accent}` }}
+                            >
+                              ×{tile.mp}
+                            </span>
+                          )}
+                        </span>
+                      ) : gem ? (
                         <span className="cell-sym block h-full w-full">
                           <img src={gem} alt="" className="h-full w-full object-contain p-1" />
                         </span>
@@ -752,28 +1199,39 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
         </div>
 
         {/* Console */}
-        <div className="relative mt-4 flex flex-col items-center justify-between gap-4 pt-4 lg:flex-row" style={{ borderTop: `1px solid ${scene.rim}` }}>
-          <div className="flex flex-wrap items-center justify-center gap-2 rounded-2xl border p-2" style={{ borderColor: scene.rim, backgroundImage: scene.felt }}>
+        {/* `shrink-0` keeps the controls at their natural height; without it they
+            are the first thing the reel window squeezes on a short viewport. */}
+        <div
+          /* Wraps by default, because a narrow viewport genuinely needs two rows.
+            Only when *height* is scarce — a landscape phone, which is wide enough
+            for one row — is it forced onto a single line, since wrapping there
+            would cost the reels the vertical room they are short of. */
+          className="relative mt-4 flex shrink-0 flex-row flex-wrap items-center justify-between gap-2 pt-4 [@media(max-height:560px)]:flex-nowrap [@media(max-height:560px)]:gap-1 [@media(max-height:560px)]:pt-1"
+          style={{ borderTop: `1px solid ${scene.rim}` }}
+        >
+          <div className="flex min-w-0 flex-nowrap items-center justify-center gap-2 rounded-2xl border p-2 [@media(max-height:560px)]:gap-1 [@media(max-height:560px)]:p-1" style={{ borderColor: scene.rim, backgroundImage: scene.felt }}>
             <ConsoleButton
               tone="neutral"
               title="Lower bet"
               onClick={() => setBet(Math.max(minBet, bet - 1))}
               disabled={busy || bet <= minBet}
-              className="h-11 w-11 text-xl"
+              className="h-11 w-11 text-xl [@media(max-height:560px)]:h-10 [@media(max-height:560px)]:w-10 [@media(max-height:560px)]:text-base"
             >
               −
             </ConsoleButton>
-            <div className="min-w-[104px] text-center">
+            <div className="min-w-[104px] text-center [@media(max-height:560px)]:min-w-[72px]">
               <span className="block text-[9px] font-semibold uppercase text-sky-400/60">Total Bet</span>
-              <span data-testid="total-bet" className="font-mono text-lg font-bold text-sky-300">{totalBet}</span>
-              <span className="block text-[9px] text-slate-400/70">{bet} × {lines} lines</span>
+              <span data-testid="total-bet" className="block font-mono text-lg font-bold text-sky-300 [@media(max-height:560px)]:text-sm">{totalBet}</span>
+              {/* The per-line breakdown is detail, not information: on a short
+                  viewport the stake and the balance both matter more. */}
+              <span className="hidden text-[9px] text-slate-400/70 [@media(max-height:560px)]:hidden sm:block">{bet} × {lines} lines</span>
             </div>
             <ConsoleButton
               tone="neutral"
               title="Raise bet"
               onClick={() => setBet(bet + 1)}
               disabled={busy}
-              className="h-11 w-11 text-xl"
+              className="h-11 w-11 text-xl [@media(max-height:560px)]:h-10 [@media(max-height:560px)]:w-10 [@media(max-height:560px)]:text-base"
             >
               +
             </ConsoleButton>
@@ -785,7 +1243,7 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
               title={`Set the lowest stake (${minBet})`}
               onClick={minBetTo}
               disabled={busy || bet <= minBet}
-              className="h-11 px-3 text-xs"
+              className="h-11 px-3 text-xs [@media(max-height:560px)]:h-10"
             >
               Min
             </ConsoleButton>
@@ -795,20 +1253,20 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
               title="Max bet"
               onClick={() => setBet(maxBet())}
               disabled={busy || bet >= maxBet()}
-              className="h-11 px-3 text-xs"
+              className="h-11 px-3 text-xs [@media(max-height:560px)]:h-10"
             >
               Max
             </ConsoleButton>
           </div>
 
-          <div className="flex flex-1 flex-wrap items-center justify-center gap-3">
+          <div className="flex min-w-0 flex-1 flex-nowrap items-center justify-center gap-3 [@media(max-height:560px)]:gap-1">
             <ConsoleButton
               tone={auto ? "rose" : "blue"}
               testId="auto-btn"
               title={auto ? "Stop autoplay" : "Autoplay"}
               onClick={() => setAuto(!auto)}
               active={auto}
-              className="h-16 min-w-[92px] flex-col gap-0.5 text-xs"
+              className="h-16 min-w-[92px] flex-col gap-0.5 text-xs [@media(max-height:560px)]:h-10 [@media(max-height:560px)]:min-w-[64px] [@media(max-height:560px)]:text-[10px]"
             >
               <span className="text-base leading-none">{auto ? "⏹" : "🔄"}</span>
               <span className="leading-none">{auto ? "Stop" : "Auto"}</span>
@@ -820,7 +1278,7 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
               title="Spin"
               onClick={() => { setAuto(false); void safeSpin(); }}
               disabled={busy}
-              className="min-w-[150px] flex-1 px-10 py-4 text-2xl tracking-widest"
+              className="min-w-[150px] flex-1 px-10 py-4 text-2xl tracking-widest [@media(max-height:560px)]:min-w-[110px] [@media(max-height:560px)]:px-4 [@media(max-height:560px)]:py-3 [@media(max-height:560px)]:text-base"
             >
               {busy ? "…" : "Spin ▶"}
             </ConsoleButton>
@@ -832,45 +1290,12 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
               testId="history-btn"
               title="Spin history"
               onClick={() => setShowHistory(true)}
-              className="h-11 w-11 text-base"
+              className="h-11 w-11 text-base [@media(max-height:560px)]:h-10 [@media(max-height:560px)]:w-10"
             >
               🕘
             </ConsoleButton>
           </div>
         </div>
-
-        {gain > 0 && (
-          <div className="mt-3 flex flex-col items-center gap-2">
-            <div className="flex flex-wrap items-center justify-center gap-2 text-sm">
-              <span data-testid="gamble-amount" className="font-mono text-cyan-300">Gamble {gain}</span>
-              {MULTIPLIERS.map((m) => {
-                const art = multArt(m, alias);
-                const affordable = wallet >= gain * m;
-                return (
-                  <button
-                    key={m}
-                    type="button"
-                    data-testid={m === 2 ? "double-btn" : `gamble-${m}x`}
-                    onClick={() => gamble(m)}
-                    disabled={busy || !affordable}
-                    title={
-                      affordable
-                        ? `Gamble for ×${m} — risks ${gain}, wins ${gain * m}`
-                        : `×${m} needs ${gain * m} in your balance`
-                    }
-                    className="relative h-12 w-[68px] transition hover:brightness-110 active:scale-95 disabled:cursor-not-allowed disabled:opacity-35"
-                  >
-                    <img src={art} alt={`Gamble ×${m}`} className="absolute inset-0 h-full w-full object-contain" />
-                  </button>
-                );
-              })}
-              <ConsoleButton tone="green" testId="collect-btn" title="Collect the win" onClick={collect} disabled={busy} className="h-12 px-5 text-sm">
-                Keep
-              </ConsoleButton>
-            </div>
-            <p className="text-[11px] text-slate-400/70">Win is already in your balance — gamble it or keep it.</p>
-          </div>
-        )}
 
         {notice && (
           <div className="mt-3 rounded-xl border border-rose-500/40 bg-rose-950/40 px-4 py-2 text-center font-bold text-rose-300">
@@ -950,16 +1375,38 @@ export default function Player({ uid, alias }: { uid: number; alias: string }) {
       {showHistory && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-md" onClick={() => setShowHistory(false)}>
           <div className="flex max-h-[80vh] w-full max-w-md flex-col rounded-3xl border border-sky-500/40 bg-[#33478a]/92 p-6" onClick={(e) => e.stopPropagation()}>
-            <h2 className="mb-4 text-center text-2xl font-bold text-sky-300 font-cinzel">SPIN HISTORY</h2>
-            <div className="space-y-2 overflow-y-auto">
-              {history.length === 0 && <p className="py-4 text-center text-sm text-sky-200/50">No spins yet.</p>}
-              {history.map((h, i) => (
-                <div key={i} className="flex items-center justify-between rounded-lg border border-sky-500/10 bg-black/40 p-2 text-xs">
-                  <span className="text-sky-200/60">{h.time}</span>
-                  <span className="text-slate-300">Bet: {h.bet}</span>
-                  <span className={h.win > 0 ? "font-bold text-emerald-400" : "text-slate-500"}>{h.win > 0 ? `+${h.win}` : "0"}</span>
-                </div>
-              ))}
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-2xl font-bold text-sky-300 font-cinzel">SPIN HISTORY</h2>
+              <button onClick={() => setShowHistory(false)} className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition" title="Close">✕</button>
+            </div>
+            <div className="space-y-2 overflow-y-auto max-h-[60vh]">
+              {history.length === 0 ? (
+                <p className="py-8 text-center text-sm text-sky-200/50">No spins yet.</p>
+              ) : (
+                history.map((h, i) => {
+                  const won = h.win > 0;
+                  const net = h.win - h.bet;
+                  return (
+                    <div
+                      key={i}
+                      className={`flex flex-col gap-1 rounded-xl border p-3 transition ${
+                        won ? "border-emerald-500/30 bg-emerald-500/5" : "border-rose-500/30 bg-rose-500/5"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-sky-200/60">{h.time}</span>
+                        <span className={`font-bold ${won ? "text-emerald-300" : "text-rose-300"}`}>
+                          {won ? `+${h.win}` : `−${h.bet}`}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-4 text-[10px] text-slate-400">
+                        <span>Bet: <span className="text-slate-300 font-mono">{h.bet}</span></span>
+                        <span>Net: <span className={`font-mono ${net >= 0 ? "text-emerald-300" : "text-rose-300"}`}>{net >= 0 ? "+" : ""}{net}</span></span>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
             </div>
           </div>
         </div>

@@ -78,10 +78,10 @@ export default async function WalletPage() {
       <PageTitle title="Wallet" subtitle="Balance, activity, bonuses and verification." />
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Stat label="Balance" value={wallet.toLocaleString()} hint="coins" tone="good" />
+        <Stat label="Balance" value={Math.floor(wallet).toLocaleString()} hint="coins" tone="good" />
         <Stat label="Total deposited" value={fmt(user.totalDeposit, currency)} />
-        <Stat label="Total wagered" value={user.totalBet.toLocaleString()} hint="coins" />
-        <Stat label="Total won" value={user.totalWin.toLocaleString()} hint="coins" />
+        <Stat label="Total wagered" value={Math.floor(user.totalBet).toLocaleString()} hint="coins" />
+        <Stat label="Total won" value={Math.floor(user.totalWin).toLocaleString()} hint="coins" />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
@@ -125,7 +125,7 @@ export default async function WalletPage() {
             <Button
               type="button"
               tone="ghost"
-              className="px-3 py-2 text-xs"
+              className="px-3 py-2.5 text-sm"
               data-copy={user.refCode}
             >
               Copy code
@@ -139,7 +139,7 @@ export default async function WalletPage() {
               {referrals.map((r) => (
                 <li key={r.id} className="flex justify-between gap-2">
                   <span className="truncate">{r.email}</span>
-                  <span className="shrink-0 font-mono">{fmt(r.totalDeposit, currency)}</span>
+                  <span className="shrink-0 font-mono">{Math.floor(r.totalDeposit).toLocaleString()}</span>
                 </li>
               ))}
             </ul>

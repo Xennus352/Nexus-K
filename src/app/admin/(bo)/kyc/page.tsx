@@ -88,8 +88,8 @@ export default async function AdminKycPage({
 
                 <dl className="space-y-2 text-sm">
                   <Line k="Player" v={<Link href={`/admin/users/${k.userId}`} className="text-sky-300 hover:underline">{k.user.email}</Link>} />
-                  <Line k="Deposited" v={k.user.totalDeposit.toFixed(2)} />
-                  <Line k="Withdrawn" v={k.user.totalWithdraw.toFixed(2)} />
+                  <Line k="Deposited" v={Math.floor(k.user.totalDeposit).toLocaleString()} />
+                  <Line k="Withdrawn" v={Math.floor(k.user.totalWithdraw).toLocaleString()} />
                   <Line k="Member since" v={formatDate(k.user.createdAt)} />
                   <Line k="Submitted" v={formatDate(k.submittedAt)} />
                   <Line k="Reviewed" v={formatDate(k.reviewedAt)} />

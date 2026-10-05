@@ -192,7 +192,7 @@ export default async function AdminReportsPage({
         </div>
       </Panel>
 
-      <div className="grid gap-6 xl:grid-cols-2">
+      <div className="grid gap-6 sm:grid-cols-1 xl:grid-cols-2">
         <Panel title="PER RAIL (ALL TIME)" bodyClass="p-0 sm:p-0">
           {perRail.length === 0 ? (
             <div className="p-5">
@@ -242,7 +242,7 @@ export default async function AdminReportsPage({
         </Panel>
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-2">
+      <div className="grid gap-6 sm:grid-cols-1 xl:grid-cols-2">
         <Panel title="TOP DEPOSITORS" bodyClass="p-0 sm:p-0">
           {topDepositors.length === 0 ? (
             <div className="p-5">
@@ -280,10 +280,10 @@ export default async function AdminReportsPage({
                     <RowLink href={`/admin/users/${u.id}`}>{u.email}</RowLink>
                   </td>
                   <td className="px-4 py-2.5 font-mono text-xs text-slate-300">
-                    {u.totalBet.toLocaleString()}
+                    {Math.floor(u.totalBet).toLocaleString()}
                   </td>
                   <td className="px-4 py-2.5 font-mono text-xs text-emerald-300">
-                    {u.totalWin.toLocaleString()}
+                    {Math.floor(u.totalWin).toLocaleString()}
                   </td>
                   <td className="px-4 py-2.5 font-mono text-xs text-slate-400">
                     {u.totalBet > 0 ? `${((u.totalWin / u.totalBet) * 100).toFixed(1)}%` : "—"}

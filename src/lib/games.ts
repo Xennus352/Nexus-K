@@ -10,6 +10,7 @@
 import { cache } from "react";
 import { prisma } from "@/lib/prisma";
 import { stateOf, type GameState } from "@/lib/maintenance";
+import { trendingIndex } from "@/lib/theme";
 
 export type EngineGame = {
   prov: string;
@@ -56,6 +57,8 @@ export type LobbyGame = {
   local: boolean;
   maint: boolean;
   maintNote: string;
+  /** Promoted: sorted to the front of the grid and badged. */
+  trending: boolean;
 };
 
 export type Blocked = { blocked: true; reason: "hidden" | "maintenance"; note: string } | { blocked: false };
@@ -96,6 +99,7 @@ export function buildLobby(
       local: false,
       maint: s.maint,
       maintNote: s.maintNote,
+      trending: false,
     });
   }
 
@@ -105,6 +109,20 @@ export function buildLobby(
       a.s === b.s ? a.i - b.i : a.s === 0 ? 1 : b.s === 0 ? -1 : a.s - b.s,
     )
     .map((x) => x.g);
+
+  /* Promote the pinned title to the front of the grid and badge it. Moved rather
+     than re-sorted, so every other game keeps the operator's own order behind
+     it, and only ever one card wears the badge: two TRENDING cards at the top of
+     a lobby read as a bug rather than a promotion. `trendingIndex` is the same
+     lookup the home page's TRENDING NOW strip uses, so the two sections cannot
+     disagree about what is trending. */
+  games.forEach((g) => { g.trending = false; });
+  const hot = trendingIndex(games.map((g) => g.key));
+  if (hot >= 0) {
+    const [g] = games.splice(hot, 1);
+    g.trending = true;
+    games.unshift(g);
+  }
 
   const providers = [...new Set(games.map((g) => g.prov))];
   return { games, providers };

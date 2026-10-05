@@ -107,7 +107,7 @@ export default async function AdminWithdrawMethodsPage({
                     <form action={toggleWithdrawMethod}>
                       <input type="hidden" name="id" value={m.id} />
                       <input type="hidden" name="status" value={m.status ? "off" : "on"} />
-                      <Button type="submit" tone="ghost" className="px-3 py-1.5 text-xs">
+                      <Button type="submit" tone="ghost" className="px-4 py-2 text-sm">
                         {m.status ? "Disable" : "Enable"}
                       </Button>
                     </form>

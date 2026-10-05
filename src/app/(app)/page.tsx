@@ -3,6 +3,7 @@ import { getSession } from "@/lib/session";
 import { claimDailyBonus } from "@/server/actions";
 import { prisma } from "@/lib/prisma";
 import { settingNumber } from "@/lib/settings";
+import { trendingIndex } from "@/lib/theme";
 import Gallery from "@/components/Gallery";
 import AuthForm from "@/components/AuthForm";
 import LoginScene from "@/components/LoginScene";
@@ -52,14 +53,31 @@ export default async function Home({
     settingNumber("bonus.daily", 1000),
   ]);
 
-  let featured: { prov: string; name: string; sx: number; sy: number; rtp: number[] }[] = [];
+  let featured: { prov: string; name: string; sx: number; sy: number; rtp: number[]; trending?: boolean }[] = [];
+  let engineError = false;
   try {
     const res = await fetch(`${ENGINE}/game/list?inc=slot&exc=~all&sort=true`, {
       cache: "no-store",
     });
-    featured = (await res.json()).list?.slice(0, 12) ?? [];
+    const list = (await res.json()).list ?? [];
+    /* The promoted title is lifted to the head of this strip rather than left
+       wherever the engine's sort put it. `trendingIndex` is the same lookup the
+       lobby's grid uses, so the two sections cannot disagree about what is
+       trending — and neither can a future keyword edit move one without the
+       other. */
+    const hot = trendingIndex(list.map((g: { prov: string; name: string }) => `${g.prov}/${g.name}`));
+    if (hot > 0) list.unshift(...list.splice(hot, 1));
+    // Exactly one card wears the badge — the head of the strip, and only when the
+    // promoted title was in this fetch at all (a short list may not contain it).
+    featured = list.slice(0, 12).map((g: { prov: string; name: string }, i: number) => ({
+      ...g,
+      trending: i === 0 && hot >= 0,
+    }));
   } catch {
-    /* engine offline */
+    // Kept as a flag rather than swallowed: it is the only difference between
+    // "nothing is trending" and "the engine is down", and this section has no
+    // local catalogue to fall back on the way /lobby does.
+    engineError = true;
   }
 
   return (
@@ -162,7 +180,13 @@ export default async function Home({
           <h3 className="text-xl font-black">TRENDING NOW</h3>
           <Link href="/lobby" className="text-sm text-sky-400">View all →</Link>
         </div>
-        <Gallery games={featured} />
+        {engineError ? (
+          <p className="rounded-2xl border border-amber-300/30 bg-amber-400/10 p-4 text-sm text-amber-200">
+            The game engine is not answering right now, so trending games cannot be listed.
+          </p>
+        ) : (
+          <Gallery games={featured} />
+        )}
       </section>
     </div>
   );

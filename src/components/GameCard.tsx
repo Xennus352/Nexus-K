@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { themeFor, assetFor, sceneFor } from "@/lib/theme";
+import { themeFor, assetFor, coverFor, sceneFor } from "@/lib/theme";
 
 export type GameCardData = {
   prov: string;
@@ -15,17 +15,22 @@ export type GameCardData = {
   href?: string;
   /** This game is suspended; link still opens, and says why. */
   maint?: boolean;
+  /** Promoted by the lobby — worn as a badge on the cover. */
+  trending?: boolean;
   /** Fallback href when it is just a name, for engine games. Kept raw for labels. */
   local?: boolean;
 };
 
-function hash(s: string): number {
-  let h = 0;
-  for (const c of s) h = (h * 31 + c.charCodeAt(0)) >>> 0;
-  return h;
-}
-
+/**
+ * The pack badge shown top-right. Kept as one lookup rather than inferred so a
+ * pack can be added without silently leaving an empty bordered chip on every
+ * card it produces — `?? "Slots"` guards that case regardless.
+ */
 const PACK_LABEL: Record<string, string> = {
+  buffalo: "Savannah",
+  zeus: "Olympus",
+  egypt: "Egypt",
+  viking: "Viking",
   kemet: "Kemet",
   classic: "Classic",
   lux: "Gold Reels",
@@ -45,7 +50,10 @@ export default function GameCard({ g }: { g: GameCardData }) {
   const theme = themeFor(key);
   const assets = assetFor(key);
   const scene = sceneFor(key, g.sx);
-  const cover = g.local ? g.cover : assets.images[hash(key) % assets.images.length];
+  // The pack nominates what may be shown and the title gets first refusal on it
+  // (see `coverFor`) — a thumbnail is read before its caption, so *Crown* wears
+  // the crown rather than whichever reel symbol the hash drew.
+  const cover = g.local ? g.cover : coverFor(key);
   const href = g.href ?? `/play/${encodeURIComponent(key)}`;
   return (
     <Link
@@ -111,10 +119,21 @@ export default function GameCard({ g }: { g: GameCardData }) {
           className="absolute right-2 top-2 rounded-md border px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-widest backdrop-blur-sm"
           style={{ borderColor: scene.rim, color: theme.accent, background: "rgba(3,6,14,0.55)" }}
         >
-          {g.local ? "NEXUS" : PACK_LABEL[assets.kind]}
+          {g.local ? "NEXUS" : PACK_LABEL[assets.kind] ?? "Slots"}
         </span>
+        {/* Top-left rather than top-right: the pack label already owns that
+            corner, and a promotion wants to be the first thing read. The
+            maintenance chip steps down a row when both apply rather than sit
+            underneath it. */}
+        {g.trending && (
+          <span className="absolute left-2 top-2 rounded-md bg-gradient-to-r from-orange-500 to-rose-500 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-widest text-white shadow-[0_0_12px_rgba(251,146,60,0.85)]">
+            🔥 Trending
+          </span>
+        )}
         {g.maint && (
-          <span className="absolute left-2 top-2 rounded-md border border-amber-400/60 bg-black/60 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-widest text-amber-300 backdrop-blur-sm">
+          <span
+            className={`absolute left-2 rounded-md border border-amber-400/60 bg-black/60 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-widest text-amber-300 backdrop-blur-sm ${g.trending ? "top-9" : "top-2"}`}
+          >
             Maintenance
           </span>
         )}

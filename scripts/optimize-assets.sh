@@ -1,26 +1,31 @@
 #!/usr/bin/env bash
-# Derives the committed WebP art in public/gfx/{zeus,egypt,viking} from the three
-# packs dropped into public/assets:
+# Derives the WebP art in public/gfx/{zeus,egypt,viking,buffalo} from the raw
+# packs in assets/, at the repo root — deliberately *outside* public/, so the
+# ~146 MB of source art is neither committed nor served by Next.js:
 #
-#   public/assets/zeus_slot_complete_asset_pack   purpose-built slot art
-#   public/assets/gptEgypt                        7 ornate Egyptian emblems (RGBA)
-#   public/assets/gptViking/models/*/diffuse.jpg  low-poly 3D model textures
+#   assets/zeus_slot_complete_asset_pack      purpose-built slot art
+#   assets/gptEgypt                           7 ornate Egyptian emblems (RGBA)
+#   assets/gptViking/models/*/diffuse.jpg     low-poly 3D model textures
+#   assets/african_buffalo_slot_assets        savannah symbols, scenes, frame
 #
 #   ./scripts/optimize-assets.sh
 #
-# Requires ImageMagick 7 (`magick`). public/assets is git-ignored; everything the
-# app loads is the small derivative written under public/gfx.
+# Requires ImageMagick 7 (`magick`). The script reads assets/ and writes only
+# the four public/gfx outputs above; its sources are never modified. Everything
+# the *app* loads is the derivative: theme.ts points at /gfx/{zeus,egypt,
+# viking,buffalo} and never at a raw pack folder.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-SRC="public/assets"
+SRC="assets"
 ZEUS="$SRC/zeus_slot_complete_asset_pack"
 EGY="$SRC/gptEgypt"
 VIK="$SRC/gptViking/models"
+BUF="$SRC/african_buffalo_slot_assets"
 OUT="public/gfx"
 
 command -v magick >/dev/null || { echo "error: ImageMagick 7 ('magick') not found" >&2; exit 1; }
-for d in "$ZEUS" "$EGY" "$VIK"; do
+for d in "$ZEUS" "$EGY" "$VIK" "$BUF"; do
   [ -d "$d" ] || { echo "error: missing source dir: $d" >&2; exit 1; }
 done
 
@@ -205,4 +210,42 @@ else
   echo "viking: no textures found, skipped" >&2
 fi
 
-du -sh "$OUT"/{zeus,egypt,viking} 2>/dev/null || true
+# ------------------------------------------------------------------- buffalo --
+# The bundled African Buffalo pack ships finished art rather than atlas crops:
+# symbols are RGBA with the background already cut away, so they only need
+# trimming to their subject and re-centring. No keying — a luminance ramp here
+# would eat the dark interior detail of the buffaloes rather than remove a
+# baked-in field that was never there.
+mkdir -p "$OUT/buffalo/sym" "$OUT/buffalo/bg" "$OUT/buffalo/ui"
+
+count=0
+for f in "$BUF"/symbols/*.png; do
+  n="$(basename "$f" .png)"
+  square "$f" "$SYMBOL_PX" "$TMP/s.png"
+  webp "$TMP/s.png" 90 "$OUT/buffalo/sym/$n.webp"
+  count=$((count + 1))
+done
+echo "buffalo: $count symbols"
+
+# Scenes are painted panoramas (540x188) rather than 16:9 plates, so they are
+# widened but keep their own aspect — forcing them to 16:9 would crop away both
+# ends of the horizon, and the page covers them with object-cover anyway.
+count=0
+for f in "$BUF"/backgrounds/*.png; do
+  n="$(basename "$f" .png)"
+  magick "$f" -strip -resize 1600x "$TMP/b.png"
+  webp "$TMP/b.png" 82 "$OUT/buffalo/bg/$n.webp"
+  count=$((count + 1))
+done
+echo "buffalo: $count backgrounds"
+
+# reel_frame carries the felt and the divider bars, banners carry their own
+# drop shadow: nothing to key, just a ceiling on the pixel count.
+for f in "$BUF"/ui/*.png; do
+  n="$(basename "$f" .png)"
+  magick "$f" -strip -resize "1024x1024>" "$TMP/b.png"
+  webp "$TMP/b.png" 88 "$OUT/buffalo/ui/$n.webp"
+done
+echo "buffalo: $(find "$OUT/buffalo/ui" -name '*.webp' | wc -l) interface panels"
+
+du -sh "$OUT"/{zeus,egypt,viking,buffalo} 2>/dev/null || true

@@ -24,18 +24,24 @@ export default async function WithdrawPage({
   const [wallet, methods, rollover, kycRequired] = await Promise.all([
     user.engineUid === null ? Promise.resolve(0) : walletOf(user.engineUid),
     prisma.withdrawMethod.findMany({
-      where: { status: true },
+      where: { status: true, code: { in: ["kpay", "wave"] } },
       orderBy: [{ sort: "asc" }, { name: "asc" }],
     }),
     settingNumber("withdraw.rollover", 1),
     prisma.kycSubmission.findUnique({ where: { userId: user.id } }),
   ]);
 
+  // Use local payment logos for KBZ Pay and Wave Pay
+  const PAYMENT_LOGOS: Record<string, string> = {
+    kpay: "/gfx/payments/kpay.png",
+    wave: "/gfx/payments/wave.png",
+  };
+
   const choices: MethodChoice[] = methods.map((m) => ({
     id: m.id,
     name: m.name,
     code: m.code,
-    logo: m.logo,
+    logo: PAYMENT_LOGOS[m.code] ?? m.logo,
     currency: m.currency,
     minAmount: m.minAmount,
     maxAmount: m.maxAmount,
@@ -63,23 +69,19 @@ export default async function WithdrawPage({
       {error && <Notice>{error}</Notice>}
 
       <div className="grid gap-4 sm:grid-cols-3">
-        <Stat label="Available balance" value={wallet.toLocaleString()} hint="coins" tone="good" />
-        <Stat
-          label="Total wagered"
-          value={user.totalBet.toLocaleString()}
-          hint={`${user.totalWin.toLocaleString()} won`}
-        />
+        <Stat label="Available balance" value={Math.floor(wallet).toLocaleString()} hint="coins" tone="good" />
+        <Stat label="Total wagered" value={Math.floor(user.totalBet).toLocaleString()} hint={`${Math.floor(user.totalWin).toLocaleString()} won`} />
         <Stat
           label="Total deposited"
-          value={user.totalDeposit.toFixed(2)}
+          value={Math.round(user.totalDeposit).toLocaleString()}
           hint={rollover > 0 ? `×${rollover} turnover required` : "no turnover requirement"}
         />
       </div>
 
       {rollover > 0 && !wageredOk && (
         <Notice tone="info">
-          Withdrawals unlock once you have wagered {required.toFixed(2)} coins. You have wagered{" "}
-          {user.totalBet.toFixed(2)} — {(required - user.totalBet).toFixed(2)} to go.
+          Withdrawals unlock once you have wagered {Math.round(required).toLocaleString()} coins. You have wagered{" "}
+          {Math.round(user.totalBet).toLocaleString()} — {Math.round(required - user.totalBet).toLocaleString()} to go.
         </Notice>
       )}
 

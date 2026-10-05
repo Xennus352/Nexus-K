@@ -77,7 +77,7 @@ export default async function DepositPage() {
                     {currency(d.currency).symbol}
                     {d.amount.toLocaleString()} {d.currency}
                   </span>
-                  <ButtonLink href={`/deposit/${d.trx}`} tone="ghost" className="px-3 py-1.5 text-xs">
+                  <ButtonLink href={`/deposit/${d.trx}`} tone="ghost" className="px-3 py-2.5 text-sm">
                     View
                   </ButtonLink>
                 </span>

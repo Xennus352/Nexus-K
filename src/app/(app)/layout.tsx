@@ -10,6 +10,8 @@ import CopyButton from "@/components/CopyButton";
 import MaintenanceScreen from "@/components/MaintenanceScreen";
 import { CoinGrantToastContainer } from "@/components/CoinGrantToast";
 
+export const dynamic = "force-dynamic";
+
 export default async function AppLayout({
   children,
 }: {

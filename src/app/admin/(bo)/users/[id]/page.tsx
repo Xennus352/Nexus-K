@@ -92,7 +92,7 @@ export default async function AdminUserDetail({
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Stat
           label="Live balance"
-          value={wallet === null ? "—" : wallet.toLocaleString()}
+          value={wallet === null ? "—" : Math.floor(wallet).toLocaleString()}
           hint="coins, read from the engine"
           tone="good"
         />
@@ -100,12 +100,12 @@ export default async function AdminUserDetail({
         <Stat label="Total withdrawn" value={fmt(user.totalWithdraw, currency)} />
         <Stat
           label="Wagered / won"
-          value={`${user.totalBet.toLocaleString()} / ${user.totalWin.toLocaleString()}`}
+          value={`${Math.floor(user.totalBet).toLocaleString()} / ${Math.floor(user.totalWin).toLocaleString()}`}
           hint="coins"
         />
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-3">
+      <div className="grid gap-6 sm:grid-cols-1 lg:grid-cols-2 xl:grid-cols-3">
         <Panel title="ACCOUNT">
           <dl className="space-y-2 text-sm">
             <Row k="Referral code" v={<span className="font-mono text-sky-300">{user.refCode || "—"}</span>} />
@@ -311,7 +311,7 @@ export default async function AdminUserDetail({
         )}
       </Panel>
 
-      <div className="grid gap-6 xl:grid-cols-2">
+      <div className="grid gap-6 sm:grid-cols-1 xl:grid-cols-2">
         <Panel title="BONUS CLAIMS" bodyClass="p-0 sm:p-0">
           {bonusClaims.length === 0 ? (
             <div className="p-5">

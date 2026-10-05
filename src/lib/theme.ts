@@ -192,14 +192,18 @@ const LUX = "/gfx/lux";
 const BTN = "/gfx/btn";
 const MULT = "/gfx/mult";
 const BADGE = "/gfx/badge";
-// The three packs in public/assets, derived to WebP by scripts/optimize-assets.sh.
+// The raw packs live in assets/ at the repo root (gitignored, and outside
+// public/ so Next.js never serves them); these are the WebP outputs
+// scripts/optimize-assets.sh derives them into.
 const ZEUS = "/gfx/zeus";
 const EGYPT = "/gfx/egypt";
 const VIKING = "/gfx/viking";
+// The bundled African Buffalo pack, derived the same way.
+const BUF = "/gfx/buffalo";
 
 export type PackKind =
   | "kemet" | "classic" | "fruits2" | "pixelfood" | "fantasy" | "lux"
-  | "zeus" | "egypt" | "viking";
+  | "zeus" | "egypt" | "viking" | "buffalo";
 
 export type ButtonSet = {
   spin: string;
@@ -227,8 +231,27 @@ export type AssetPack = {
   bigwinDecor?: string;
   character?: string;
   characterFramed?: string;
+  /**
+   * The art a lobby card may cover itself with, in no particular order.
+   *
+   * A card used to pick `images[hash]`, which is how a Zeus game ended up
+   * wearing a blue gem and half the gold games a bare "J" — a reel symbol is
+   * chosen to read as *a value on a paytable*, not as *an identity*. Each pack
+   * therefore nominates what is worth showing: a pack with one true figure lists
+   * only that (both savannah games show the buffalo, every Zeus game shows
+   * Zeus), while a pack with a shelf of good art lists several so neighbouring
+   * cards still differ. Omitted means "any reel symbol will do", which is
+   * correct for packs whose whole set is already objects rather than letters.
+   */
+  covers?: string[];
   /** Framed symbol tiles, index-aligned with `images`, shown on winning cells. */
   gemTiles?: string[];
+  /**
+   * Multiplier tiles shipped by the pack, keyed by factor. Drawn *inside* a reel
+   * cell when the engine reports that line was multiplied — never as ordinary
+   * reel art, and never for a factor the pack did not ship.
+   */
+  multTiles?: Partial<Record<TileFactor, string>>;
   /** Pixel-art packs get a subtle grid overlay on the reel window. */
   pixelGrid?: boolean;
   /** Control plates from the pack itself, when it ships them. */
@@ -274,27 +297,75 @@ const LUX_NAMES = [
   "grape", "orange", "lime", "watermelon", "jocker",
 ];
 const LUX_IMAGES = LUX_NAMES.map((n) => `${LUX}/${n}.webp`);
+/**
+ * What this shelf is worth showing on a card: everything but the card ranks
+ * (`a2`, `k`, `q`, `j`), the bare Greek letters (`omega`, `a3dots`) and
+ * `barborder`, an empty decorated frame. Those render as a paytable rather than
+ * as a game — a lobby of gold cards each wearing a lone "J" reads like a rules
+ * page. Shared with the viking pack, whose reel symbols are these same files.
+ */
+const LUX_COVERS = LUX_NAMES.filter(
+  (n) => !["a2", "k", "q", "j", "omega", "a3dots", "barborder"].includes(n),
+).map((n) => `${LUX}/${n}.webp`);
+/**
+ * The viking pack borrows the gold pack's symbols but not its whole shelf: in
+ * front of a snowbound panorama a Norse game should wear a treasure or a trinket
+ * — a crown, a gem, a bell — not a grape, a BAR or a stray "7".
+ */
+const VIKING_COVERS = LUX_COVERS.filter(
+  (u) =>
+    !["bar", "7", "72", "grape", "orange", "lime", "watermelon", "redberry", "violetmango"].some(
+      (n) => u.endsWith(`/${n}.webp`),
+    ),
+);
 const LUX_WILD = LUX_NAMES.indexOf("jocker");
 
-// Button plates exported from public/assets/buttons: square-ish art is compact
+// Button plates from the raw buttons drop: square-ish art is compact
 // (used for the -/+ and icon controls), wide art is used for the big actions.
 const BTN_ROUND = [1, 2, 3].map((i) => `${BTN}/round-${String(i).padStart(2, "0")}.webp`);
 const BTN_WIDE = [1, 2, 3, 4, 5, 6].map((i) => `${BTN}/wide-${String(i).padStart(2, "0")}.webp`);
 
-/** Gamble multipliers the engine accepts (binding: gt=1, lte=10) -> badge art. */
-export const MULTIPLIERS = [2, 5, 10] as const;
-export type Multiplier = (typeof MULTIPLIERS)[number];
+/**
+ * Factors an in-reel multiplier tile can be drawn for.
+ *
+ * `slot.DropMultiplier` in the engine lands ×2, ×3 or ×5 on a multiplied spin,
+ * and a paytable may already carry ×10, so all four need art. Nothing here is
+ * chosen by the player: the engine decides the factor and the tile is the
+ * display of that decision.
+ */
+export const TILE_FACTORS = [2, 3, 5, 10] as const;
+export type TileFactor = (typeof TILE_FACTORS)[number];
 
-// The pack ships two ×10 plates; games alternate between them.
-const MULT_ART: Record<Multiplier, string[]> = {
+// Shared plates, used only when the pack itself did not ship the factor — the
+// pack's own tile always wins (see `multTile`). The two ×10 plates alternate by
+// game so the same factor still looks different across the lobby.
+const MULT_ART: Record<TileFactor, string[]> = {
   2: [`${MULT}/2x.webp`],
+  // Drawn to match the rest of the set: `assets/times/` has no ×3 source, and
+  // the engine lands ×3 about as often as ×2, so a typographic fallback would
+  // show more often than not.
+  3: [`${MULT}/3x.webp`],
   5: [`${MULT}/5x.webp`],
   10: [`${MULT}/10x.webp`, `${MULT}/10x2.webp`],
 };
 
 export function multArt(m: number, alias = ""): string | undefined {
-  const set = MULT_ART[m as Multiplier];
+  const set = MULT_ART[m as TileFactor];
   return set ? set[hash(alias) % set.length] : undefined;
+}
+
+/**
+ * Art for a ×N tile drawn inside a reel cell.
+ *
+ * The pack's own tile wins, so a game wears its own symbols; the shared
+ * `/gfx/mult` plates are the fallback for a factor the pack did not ship (×10
+ * on the buffalo pack, ×3 on everything except zeus). `undefined` means no art
+ * exists at all, and the caller falls back to a typographic `×N` rather than
+ * dropping the multiplier the engine paid for.
+ */
+export function multTile(m: number, alias = ""): string | undefined {
+  const own = assetFor(alias).multTiles?.[m as TileFactor];
+  return own ?? multArt(m, alias);
 }
 
 /** Feature marks for the paytable and win banners, with per-game variants. */
@@ -333,12 +404,13 @@ const KEMET_PACK: AssetPack = {
   gemTiles: KEMET_IMAGES.map((_, i) => `${KEMET}/sym/${KEMET_GEM[i]}.webp`),
 };
 
-const CLASSIC_PACK: AssetPack = { kind: "classic", images: CLASSIC_IMAGES };
+/** Composed backglass for each of these — see scripts/make-banners.sh. */
+const CLASSIC_PACK: AssetPack = { kind: "classic", images: CLASSIC_IMAGES, bg: `${CLASSIC}/bg.webp` };
 const FRUITS2_PACK: AssetPack = {
-  kind: "fruits2", images: FRUITS2_IMAGES, pixelGrid: true,
+  kind: "fruits2", images: FRUITS2_IMAGES, pixelGrid: true, bg: `${FRUITS2}/bg.webp`,
 };
 const PIXELFOOD_PACK: AssetPack = {
-  kind: "pixelfood", images: PIXELFOOD_IMAGES, pixelGrid: true,
+  kind: "pixelfood", images: PIXELFOOD_IMAGES, pixelGrid: true, bg: `${PIXELFOOD}/bg.webp`,
 };
 // Cabinet art is picked by column count in sceneFor(): machine-1 frames 3 reels,
 // machine-4 frames 4. Only used as a dimmed backdrop, never as a strict frame.
@@ -346,7 +418,8 @@ const FANTASY_PACK: AssetPack = {
   kind: "fantasy", images: FANTASY_IMAGES, pixelGrid: true,
 };
 const LUX_PACK: AssetPack = {
-  kind: "lux", images: LUX_IMAGES, wildIndex: LUX_WILD,
+  kind: "lux", images: LUX_IMAGES, wildIndex: LUX_WILD, covers: LUX_COVERS,
+  bg: `${LUX}/bg.webp`,
 };
 
 /* ------------------------------------------------- zeus (slot complete pack) */
@@ -364,12 +437,18 @@ const ZEUS_NAMES = [
   "laurel_wreath", "greek_helmet",
   "trident", "sun_medallion", "storm_orb",
   "pegasus",
-  "multiplier_x2", "multiplier_x3", "multiplier_x5", "multiplier_x10",
+  // Held back like the buffalo pack's: the four `multiplier_x*` tiles are reel
+  // art only when the engine reports a multiplied line, so a symbol index can
+  // never stop on a "×3" and advertise a multiplier the spin never paid for.
   "bonus_star", "free_spins_badge", "lightning_scatter",
   "jackpot_crown",
   "olympus_temple_wild",
   "zeus_portrait",
 ];
+// The pack's hero. Used both as the cabinet's mascot and — via `covers` — as the
+// only art a Zeus game's lobby card will show, so these games are recognisable
+// in the grid rather than by whichever of the 28 symbols the hash landed on.
+const ZEUS_PORTRAIT = `${ZEUS}/sym/zeus_portrait.webp`;
 const ZEUS_IMAGES = ZEUS_NAMES.map((n) => `${ZEUS}/sym/${n}.webp`);
 const ZEUS_WILD = ZEUS_NAMES.indexOf("olympus_temple_wild");
 
@@ -397,8 +476,27 @@ const ZEUS_PACK: AssetPack = {
   bg: ZEUS_SCENES[0],
   bigwin: `${ZEUS}/feat/mega_win.webp`,
   bigwinDecor: `${ZEUS}/feat/big_win.webp`,
-  character: `${ZEUS}/sym/zeus_portrait.webp`,
+  character: ZEUS_PORTRAIT,
+  /** One card for every Zeus game: the portrait, not a gem the hash picked. */
+  covers: [ZEUS_PORTRAIT],
   buttons: ZEUS_BUTTONS,
+  /**
+   * The pack's ×2/×3/×5/×10 tiles — reached the long way round.
+   *
+   * The four source files are each labelled one slot out of true:
+   * `multiplier_x2` holds the "10", `multiplier_x3` the "2", `multiplier_x5`
+   * the "3" and `multiplier_x10` the "5" (verified by eye against the raw PNGs
+   * in `assets/zeus_slot_complete_asset_pack/symbols/`). Mapping them by name
+   * would paint a ×10 badge on a spin the engine multiplied by two — the one
+   * number on screen a player can check the payout against. The raw pack is
+   * vendor art this project never edits, so the correction lives here.
+   */
+  multTiles: {
+    2: `${ZEUS}/sym/multiplier_x3.webp`,
+    3: `${ZEUS}/sym/multiplier_x5.webp`,
+    5: `${ZEUS}/sym/multiplier_x10.webp`,
+    10: `${ZEUS}/sym/multiplier_x2.webp`,
+  },
 };
 
 /* ------------------------------------------------------ egypt (7 emblems) */
@@ -418,11 +516,63 @@ const EGYPT_IMAGES = EGYPT_NAMES.map((n) => `${EGYPT}/${n}.webp`);
 const EGYPT_PACK: AssetPack = {
   kind: "egypt",
   images: EGYPT_IMAGES,
+  /** Composed backglass — see scripts/make-banners.sh. */
+  bg: `${EGYPT}/bg.webp`,
   character: `${EGYPT}/goldscarab.webp`,
 };
 
-/* -------------------------------------------------------------- viking */
+/* ------------------------------------------------------------ buffalo -- */
 
+// The bundled African Buffalo pack: 28 savannah symbols (25 usable as reel art —
+// the three `multiplier_x*` tiles are held back below and drawn only when the
+// engine reports a multiplied line, so an ordinary symbol index can never land
+// on a "×3" and fake a multiplier the spin never paid for).
+//
+// Ordered like a paytable reads: card ranks, then the tiers of the savannah,
+// then the premiums and feature marks, the wild last. `Player` wraps the engine's
+// symbol index with `%`, so the order only decides what a stopped reel looks
+// like — it never decides what a game pays.
+const BUF_NAMES = [
+  "symbol_10", "buffalo_J", "buffalo_Q", "buffalo_K", "buffalo_A",
+  "zebra", "giraffe", "crocodile", "eagle", "rhino", "elephant", "lion",
+  "gold_coin", "ruby", "compass", "tribal_mask", "sun_idol", "savannah_tree",
+  "treasure_chest", "bonus_chest", "free_spins", "scatter_sunset",
+  "wild_buffalo", "buffalo_portrait", "buffalo_full",
+];
+const BUF_IMAGES = BUF_NAMES.map((n) => `${BUF}/sym/${n}.webp`);
+const BUF_WILD = BUF_NAMES.indexOf("wild_buffalo");
+
+// Three painted scenes ship with the pack: sunset, storm and the dust-and-
+// lightning overlay plate. The overlay is a transparent fx layer rather than a
+// scene, so only the two real ones rotate as backdrops.
+const BUF_SCENES = ["savannah_sunset", "storm_savannah"].map(
+  (n) => `${BUF}/bg/${n}.webp`,
+);
+
+/** The savannah's head of herd: a buffalo in an ornate gold medallion. */
+const BUF_PORTRAIT = `${BUF}/sym/buffalo_portrait.webp`;
+
+const BUF_PACK: AssetPack = {
+  kind: "buffalo",
+  images: BUF_IMAGES,
+  wildIndex: BUF_WILD,
+  /** The pack's own wooden frame — felt and divider bars are painted into it. */
+  emptyFrame: `${BUF}/ui/reel_frame.webp`,
+  bg: BUF_SCENES[0],
+  bigwin: `${BUF}/ui/big_win_banner.webp`,
+  bigwinDecor: `${BUF}/ui/mega_win_banner.webp`,
+  character: BUF_PORTRAIT,
+  /** One card for every savannah game: the buffalo, never a zebra or a ruby. */
+  covers: [BUF_PORTRAIT],
+  /** The pack's ×2/×3/×5 tiles. ×10 falls through to the shared `/gfx/mult`. */
+  multTiles: {
+    2: `${BUF}/sym/multiplier_x2.webp`,
+    3: `${BUF}/sym/multiplier_x3.webp`,
+    5: `${BUF}/sym/multiplier_x5.webp`,
+  },
+};
+
+/* -------------------------------------------------------------- viking */
 // gptViking shipped 38 low-poly models but only their diffuse textures, and a UV
 // atlas is unusable as reel art (every one measures 56-64 distinct colours after
 // quantising to 64 — i.e. pure noise). What they *do* carry is material and
@@ -438,6 +588,8 @@ const VIKING_PACK: AssetPack = {
   kind: "viking",
   images: LUX_IMAGES,
   wildIndex: LUX_WILD,
+  /** Same shelf as the gold pack, minus the fruit and the BAR. */
+  covers: VIKING_COVERS,
   bg: `${VIKING}/bg.webp`,
 };
 
@@ -445,26 +597,104 @@ const VIKING_PACK: AssetPack = {
 // named outright after Egypt or a pharaoh, while anubis/pyramid/sphinx/mummy
 // stay on the richer RSG kemet pack (5 symbols but with framed gems, a cabinet,
 // a logo and a mascot behind them).
-const EGYPT_KEYWORDS = ["egypt", "pharaoh", "cleopatra", "scarab", "ankh", "khopesh", "udjat"];
+// "of ra" is a phrase rather than the two letters on purpose: bare "ra" matches
+// most anything (Brilliants, Parade, Amazons), whereas Book of Ra, Dynasty of Ra
+// and Gate of Ra are Egyptian by name and are the titles actually in the
+// catalogue. Ramses and Horus likewise only ever name Egyptian rulers.
+const EGYPT_KEYWORDS = [
+  "egypt", "pharaoh", "cleopatra", "scarab", "ankh", "khopesh", "udjat",
+  "ramses", "horus", "nefertiti", "osiris", "of ra", "book of set",
+];
+// Checked first: "African Simba" and friends are savannah games and nothing in
+// the other keyword lists claims those words, so ordering here is about reading
+// top-down rather than about collisions.
+//
+// Deliberately narrow. The pack is lion/elephant/rhino/zebra/giraffe art on a
+// savannah, and this list sits *first*, so every word added here steals a game
+// from every list below it — "panther" or "jaguar" would look right and quietly
+// claim jungle and moonlit games the art cannot carry. Only names that are
+// unambiguously African wildlife are listed; "Big Five" is the safari term.
+const BUFFALO_KEYWORDS = [
+  "buffalo", "savannah", "safari", "african", "rhino", "giraffe", "zebra",
+  "big five", "simba",
+];
+
+/**
+ * Does this game wear the African Buffalo pack?
+ *
+ * Also the fallback for which game the lobby promotes, via `trendingIndex`.
+ */
+export function isBuffaloGame(alias: string): boolean {
+  const n = alias.toLowerCase();
+  return BUFFALO_KEYWORDS.some((k) => n.includes(k));
+}
+
+/**
+ * The lobby's promoted title, pinned by alias rather than derived.
+ *
+ * "The first savannah game" would be whatever the engine's catalogue order
+ * happens to put first, which means every keyword added to `BUFFALO_KEYWORDS`
+ * is a chance to silently move the badge — adding "big five" would hand it to
+ * AGT/Big Five purely because that sorts ahead of Novomatic. Pinning keeps the
+ * badge on the game it was chosen for; `trendingIndex` falls back to a savannah
+ * title so the badge survives the engine dropping the pinned one.
+ */
+export const TRENDING_ALIAS = "Novomatic/African Simba";
+
+/**
+ * Where in `keys` the promoted game sits, or -1 when the catalogue holds
+ * neither it nor any savannah title.
+ *
+ * Returns an index rather than an alias so callers can splice a row without
+ * caring which title it turned out to be — and so the lobby and the home page's
+ * TRENDING NOW strip cannot pick differently.
+ */
+export function trendingIndex(keys: string[]): number {
+  const pinned = keys.indexOf(TRENDING_ALIAS);
+  return pinned >= 0 ? pinned : keys.findIndex((k) => isBuffaloGame(k));
+}
+
 const ZEUS_KEYWORDS = [
   "zeus", "olymp", "greek", "poseidon", "athena", "hera", "hercules", "apollo",
   "ares", "artemis", "hades", "perseus", "odyssey", "minotaur", "troy", "trojan",
   "parthenon", "sparta", "myth", "pegasus", "trident",
+  // Greek by name, not by association: Pandora's Box is the one in the list.
+  "pandora", "medusa", "gorgon", "delphi", "oracle",
 ];
 const VIKING_KEYWORDS = [
   "viking", "nordic", "valhalla", "ragnarok", "ragnar", "seax", "mjolnir",
   "thor", "fenrir", "jormungandr", "asgard", "jotun", "rune", "fjord", "clan",
   "longhouse", "berserk", "mead",
+  // Valkyrie and Trolls were in the catalogue under names no other list claimed,
+  // so both used to fall through to the generic rotation.
+  "valkyrie", "troll", "saga", "skald",
 ];
 const KEMET_KEYWORDS = ["pyramid", "anubis", "kemet", "sphinx", "mummy", "tomb", "nile"];
 const FANTASY_KEYWORDS = ["pixel", "8bit", "8-bit", "retro", "arcade", "fantasy"];
 const LUX_KEYWORDS = [
   "lucky", "luxur", "deluxe", "mega", "jackpot", "diamond", "crown", "royal",
   "gold", "coin", "reel", "bar", "bell", "cherry", "clover", "horseshoe",
+  // The only pack with a joker plate (`jocker.webp`), so joker games belong here
+  // rather than wherever the rotation happened to drop them.
+  "joker",
 ];
 const FRUIT_KEYWORDS = [
   "fruit", "fruits", "juice", "juicy", "cherry", "lemon", "melon", "berry", "grape",
   "peach", "plum", "apple", "orange", "banana", "straw", "kiwi", "lime", "candy", "sweet", "sugar",
+];
+
+/**
+ * The fruit-machine pack, for titles that name the *style* rather than a fruit.
+ *
+ * Checked last of the keyword lists, immediately before the rotation, so it only
+ * ever claims a game nothing else wanted — every one of these was previously
+ * falling through to the hash. It is a long way down on purpose: a hot/sevens
+ * game that also happens to say "gold" or "cherry" reads better on the richer
+ * LUX art, and a fruit title still reaches FRUIT first.
+ */
+const CLASSIC_KEYWORDS = [
+  "hot", "seven", "dice", "forties", "eighties", "sixties", "seventies",
+  "groovy", "funky",
 ];
 
 /**
@@ -473,6 +703,9 @@ const FRUIT_KEYWORDS = [
  */
 export function assetFor(alias: string): AssetPack {
   const n = alias.toLowerCase();
+  if (isBuffaloGame(alias)) {
+    return { ...BUF_PACK, bg: BUF_SCENES[hash(alias) % BUF_SCENES.length] };
+  }
   if (ZEUS_KEYWORDS.some((k) => n.includes(k))) {
     return { ...ZEUS_PACK, bg: ZEUS_SCENES[hash(alias) % ZEUS_SCENES.length] };
   }
@@ -484,6 +717,7 @@ export function assetFor(alias: string): AssetPack {
   if (FRUIT_KEYWORDS.some((k) => n.includes(k))) {
     return hash(alias) % 2 === 0 ? FRUITS2_PACK : PIXELFOOD_PACK;
   }
+  if (CLASSIC_KEYWORDS.some((k) => n.includes(k))) return CLASSIC_PACK;
   // Rotate the remaining packs by name hash for variety.
   const rotation = [CLASSIC_PACK, FRUITS2_PACK, PIXELFOOD_PACK, FANTASY_PACK, LUX_PACK];
   return rotation[hash(alias) % rotation.length];
@@ -541,6 +775,14 @@ export type Scene = {
   style: SceneStyle;
   /** Real backdrop art when the pack ships one. */
   image?: string;
+  /**
+   * Full-page background behind the cabinet: the same themed gradient the
+   * cabinet wears, so a game with no scene art is still not flat black. When
+   * `image` is set this is deliberately just the gradient — the page paints the
+   * art itself as a full-bleed `<img>` on top of it, and duplicating the URL
+   * into a CSS layer would make the browser fetch a file it already has.
+   */
+  backdrop: string;
   cabinet: string;
   /** Reel-window background (CSS) — never flat black. */
   felt: string;
@@ -632,6 +874,68 @@ const DECO_VIP = svgUrl(DECO_VIP_SVG);
 const DECO_FRAME = svgUrl(DECO_FRAME_SVG);
 const DECO_VOLCANO = svgUrl(DECO_VOLCANO_SVG);
 
+/**
+ * Stems whose file name is not the word a game title would use.
+ * The gold pack ships its jester as `jocker`, so *100 Jokers* would never match.
+ */
+const COVER_SPELLING: Record<string, string> = { jocker: "joker" };
+
+/** Length the two words must share from the front — "seven"/"Seventies" share five. */
+function sharedPrefix(a: string, b: string): number {
+  let i = 0;
+  while (i < a.length && i < b.length && a[i] === b[i]) i++;
+  return i;
+}
+
+const artStem = (u: string): string => u.slice(u.lastIndexOf("/") + 1, u.lastIndexOf(".")).toLowerCase();
+
+/** True when a file stem and a word from a title name the same thing. */
+function sameThing(stem: string, word: string): boolean {
+  if (stem.length < 4 || word.length < 4) return false;
+  return sharedPrefix(stem, word) >= 4 || stem.includes(word) || word.includes(stem);
+}
+
+/**
+ * The art a lobby card wears for `alias`.
+ *
+ * The pack nominates what may be shown (`AssetPack.covers`, else every reel
+ * symbol), and then the title gets first refusal: a game called *Crown* should
+ * show the crown and one called *100 Jokers* the jester, rather than whatever
+ * the hash drew — the picture is read before the caption is.
+ *
+ * Two words count as the same thing if they share four letters from the front or
+ * either contains the other whole, and both sides must be at least four letters
+ * long. That width is what keeps the rule honest: *Cabaret* cannot claim the
+ * slot **bar** (three letters) and *Ice Queen* cannot claim the ice inside
+ * `fruit_apple-slice`, both of which a lazier containment test would have
+ * accepted.
+ *
+ * A word must also be *specific* to be obeyed. "Clover" names one card in
+ * twenty-one; "fruit" is merely what a whole shelf is called, and following it
+ * would put the same apple on a dozen games at once — so a word that reaches
+ * past half the pool is treated as a namespace rather than a name, and the title
+ * falls back to the hash, which is also what happens when it names nothing.
+ */
+export function coverFor(alias: string): string {
+  const pack = assetFor(alias);
+  const pool = pack.covers ?? pack.images;
+  const words = alias
+    .slice(alias.indexOf("/") + 1)
+    .toLowerCase()
+    .split(/[^a-z]+/)
+    .filter((w) => w.length >= 4);
+  const ceiling = Math.ceil(pool.length / 2);
+
+  for (const w of words) {
+    const hits = pool.filter((u) => {
+      const raw = artStem(u);
+      return sameThing(raw, w) || sameThing(COVER_SPELLING[raw] ?? raw, w);
+    });
+    if (hits.length > 0 && hits.length <= ceiling) return hits[0];
+  }
+  return pool[hash(alias) % pool.length];
+}
+
 /** Builds the cabinet/reel background for a game from its theme + pack art. */
 export function sceneFor(alias: string, cols: number): Scene {
   const t = themeFor(alias);
@@ -640,22 +944,36 @@ export function sceneFor(alias: string, cols: number): Scene {
   const a = t.accent;
   const n = alias.toLowerCase();
 
-  // Packs that ship their own backdrop art: the Egyptian cabinet, the Zeus
-  // scenes, the viking panorama; the fantasy cabinets are used as dimmed art.
+  // Every pack hangs a picture behind the cabinet, and there are two kinds of
+  // picture. A pack that paints a *whole room* — the Egyptian hall, the Olympus
+  // scenes, the nordic panorama, the savannah plates, the fantasy cabinets — and
+  // a pack that only ships a *backglass*, which scripts/make-banners.sh composes
+  // out of that pack's own symbols for the five sets that arrive as loose
+  // symbols with nothing landscape-shaped in them. The page gets either one
+  // full-bleed; the theme treatment draws it a second time inside the cabinet,
+  // under a scrim.
   let image: string | undefined;
-  if (pack.bg && (pack.kind === "kemet" || pack.kind === "zeus" || pack.kind === "viking")) {
-    image = pack.bg;
-  } else if (pack.kind === "fantasy") {
+  if (pack.kind === "fantasy") {
     image = `${FANTASY}/machine-${cols >= 4 ? 4 : 1}.webp`;
+  } else if (pack.bg) {
+    image = pack.bg;
   }
 
-  // Art already ships a full room, so it keeps the theme treatment.
-  const isArt = Boolean(image);
-  const wantsVip = !isArt && VIP_KEYWORDS.some((k) => n.includes(k));
+  // A painted room already *is* a scene, so it keeps the theme treatment: a gold
+  // VIP suite or a lava skin laid over it would be two pictures fighting. A
+  // backglass is a backdrop rather than a room, so those games still take a skin
+  // for their cabinet, with the picture filling the page around it either way.
+  const isRoom =
+    pack.kind === "kemet" ||
+    pack.kind === "zeus" ||
+    pack.kind === "viking" ||
+    pack.kind === "buffalo" ||
+    pack.kind === "fantasy";
+  const wantsVip = !isRoom && VIP_KEYWORDS.some((k) => n.includes(k));
   // Keywords first, then a hash share so the fiery art reaches beyond the
   // obviously-named titles without landing on two games alike.
   const wantsVolcano =
-    !isArt &&
+    !isRoom &&
     !wantsVip &&
     (VOLCANO_KEYWORDS.some((k) => n.includes(k)) || h % 7 === 0);
 
@@ -664,6 +982,7 @@ export function sceneFor(alias: string, cols: number): Scene {
   const spotlight = `radial-gradient(54% 38% at 50% -8%, ${rgba(a, 0.70)} 0%, transparent 72%)`;
 
   let cabinet: string;
+  let backdrop: string;
   let felt: string;
   let halo: string;
   let rim: string;
@@ -691,6 +1010,7 @@ export function sceneFor(alias: string, cols: number): Scene {
     decoSize = 190;
     decoMask = "radial-gradient(130% 110% at 50% 0%, #fff 25%, transparent 88%)";
     smoke = "rgba(74,52,20,0.9)";
+    backdrop = cabinet;
   } else if (style === "volcano") {
     // Volcanic abyss: lava glow from below, embers rising, hot rim light.
     cabinet =
@@ -706,13 +1026,22 @@ export function sceneFor(alias: string, cols: number): Scene {
     decoSize = 250;
     decoMask = "radial-gradient(130% 110% at 50% 100%, #fff 18%, transparent 86%)";
     smoke = "rgba(96,34,12,0.92)";
+    backdrop = cabinet;
   } else {
     // Theme scene, lifted so no cabinet sits in flat black.
+    //
+    // The wall is computed once and used twice: it is the cabinet when the pack
+    // ships no scene art, and the page background either way. When a scene *is*
+    // shipped the page gets the wall as a gradient and the art arrives as a
+    // full-bleed <img> on top of it — see `backdrop` on the Scene type.
+    const themeWall =
+      `radial-gradient(48% 34% at 50% -6%, ${rgba(a, 0.62)} 0%, transparent 72%),` +
+      `radial-gradient(90% 56% at 50% 112%, ${rgba(a, 0.40)} 0%, transparent 74%),` +
+      `linear-gradient(180deg, ${rgba(t.bgA, 0.98)} 0%, ${t.bgB} 58%, ${rgba(t.bgA, 0.88)} 100%)`;
+    backdrop = themeWall;
     cabinet = image
       ? `${spotlight}, linear-gradient(rgba(6,10,22,0.52), rgba(3,6,14,0.80)), url(${image})`
-      : `radial-gradient(48% 34% at 50% -6%, ${rgba(a, 0.62)} 0%, transparent 72%),` +
-        `radial-gradient(90% 56% at 50% 112%, ${rgba(a, 0.40)} 0%, transparent 74%),` +
-        `linear-gradient(180deg, ${rgba(t.bgA, 0.98)} 0%, ${t.bgB} 58%, ${rgba(t.bgA, 0.88)} 100%)`;
+      : themeWall;
     felt =
       `radial-gradient(92% 70% at 50% 0%, ${rgba(a, 0.36)} 0%, transparent 62%),` +
       `radial-gradient(70% 46% at 50% 108%, ${rgba(a, 0.24)} 0%, transparent 74%),` +
@@ -785,7 +1114,7 @@ export function sceneFor(alias: string, cols: number): Scene {
   }
 
   return {
-    style, image, cabinet, felt, halo, rim, aurora: drift, embers,
+    style, image, backdrop, cabinet, felt, halo, rim, aurora: drift, embers,
     deco, decoFrame, decoSize, decoMask, props,
   };
 }
