@@ -6,7 +6,10 @@
 nixPackages = ["nodejs_20", "pnpm"]
 
 [phases.install]
-cmds = ["pnpm install --frozen-lockfile --prefer-offline"]
+cmds = [
+  "cp pnpm-workspace.yaml .npmrc . 2>/dev/null || true",
+  "pnpm install --frozen-lockfile --prefer-offline"
+]
 
 [phases.build]
 cmds = ["pnpm run build"]
