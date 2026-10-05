@@ -1,30 +1,22 @@
-# Next.js production Dockerfile using pnpm
+# Next.js production Dockerfile using npm (avoids pnpm build script issues)
 # Build stage
 FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# Enable pnpm
-RUN corepack enable && corepack prepare pnpm@12.8.1 --activate
-
-# Copy package files, prisma schema, and pnpm config
-COPY package.json pnpm-lock.yaml ./
-COPY pnpm-workspace.yaml ./
-COPY .npmrc ./
+# Copy package files and prisma schema
+COPY package.json package-lock.json* ./
 COPY prisma ./prisma/
 
-# Configure pnpm to allow required build scripts (redundant with .npmrc but explicit)
-RUN pnpm config set allow-builds 'prisma @prisma/client @prisma/engines esbuild unrs-resolver'
-
-# Install dependencies
-RUN pnpm install --frozen-lockfile --prefer-offline
+# Install dependencies using npm (avoids pnpm build script issues)
+RUN npm install
 
 # Copy source code
 COPY . .
 
 # Build Next.js app
 ENV NODE_ENV=production
-RUN pnpm run build
+RUN npm run build
 
 # Production stage
 FROM node:20-alpine AS runner
