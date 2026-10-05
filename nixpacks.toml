@@ -1,0 +1,16 @@
+# nixpacks.toml
+# Configuration for nixpacks (Railway's default buildpack)
+# Ensures pnpm is used with correct build script allowances
+
+[phases.setup]
+nixPackages = ["nodejs_20", "pnpm"]
+
+[phases.install]
+cmds = ["pnpm install --frozen-lockfile --prefer-offline"]
+
+[phases.build]
+cmds = ["pnpm run build"]
+
+[variables]
+NODE_ENV = "production"
+PNPM_VERSION = "12.8.1"

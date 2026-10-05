@@ -1,9 +1,10 @@
 packages:
   - .
 
-onlyBuiltDependencies:
-  - prisma
-  - "@prisma/client"
-  - "@prisma/engines"
-  - esbuild
-  - unrs-resolver
+pnpm:
+  onlyBuiltDependencies:
+    - prisma
+    - "@prisma/client"
+    - "@prisma/engines"
+    - esbuild
+    - unrs-resolver
