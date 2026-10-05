@@ -1,0 +1,202 @@
+package cmd
+
+import (
+	"fmt"
+	"runtime"
+
+	cfg "github.com/slotopol/server/config"
+	"github.com/slotopol/server/game"
+	"github.com/slotopol/server/util"
+
+	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
+)
+
+const scanShort = "Slots games reels scanning by brute force or by Monte Carlo"
+const scanLong = `Calculate RTP (Return to Player) percentage for specified slot game reels by brute force method ("scan" or "bf" command) or by Monte Carlo method ("mc" command).`
+const scanExmp = `Scan reels for "Slotopol" game for reels set nearest to 100%%:
+  %[1]s scan --game=megajack/slotopol -rtp=100
+Scan reels for "Dolphins Pearl" game for reels sets nearest to 92%% with 10 selected lines:
+  %[1]s bf -g="Novomatic / Dolphins Pearl" -r=92 -l=10
+Scan reels with using Monte Carlo method for "Sizzling Hot" game for reels sets nearest to 95.5%% with 5 selected lines and expected precision 0.1%%:
+  %[1]s mc -g="Novomatic / Sizzling Hot" -r=95.5 -l=5 --prec=0.1`
+
+func SetupParSheet(pf *pflag.FlagSet, sp *game.ScanPar, gi *game.GameInfo) (err error) {
+	var ok bool
+
+	var tn int
+	if tn, err = pf.GetInt("mt"); err != nil {
+		return
+	}
+	if tn < 1 {
+		tn = runtime.GOMAXPROCS(0)
+	}
+	sp.TN = tn
+
+	if sp.MRTP, err = pf.GetFloat64("rtp"); err != nil {
+		return
+	}
+
+	if gi.LNum > 0 {
+		var sel int
+		if sel, err = pf.GetInt("sel"); err != nil {
+			return
+		}
+		if sel == 0 {
+			sel = gi.LNum
+		} else if sel > gi.LNum {
+			return fmt.Errorf("number of selected bet lines is greater than maximum number %d in game %s", gi.LNum, gi.ID())
+		}
+		if sel != gi.LNum && (gi.GP&game.GPcas != 0) {
+			return fmt.Errorf("can not change number of selected lines %d on cascade slot %s", gi.LNum, gi.ID())
+		}
+		sp.Sel = sel
+	}
+
+	var c float64
+	if c, err = pf.GetFloat64("conf"); err != nil {
+		return
+	}
+	sp.Conf = c / 100
+
+	var t uint64
+	if t, err = pf.GetUint64("total"); err != nil {
+		return
+	}
+	sp.Total = t * 1e6
+
+	var p float64
+	if p, err = pf.GetFloat64("prec"); err != nil {
+		return
+	}
+	sp.Prec = p / 100
+
+	var pfm = map[string]uint{
+		"main":   game.PF_main,
+		"jack":   game.PF_jack,
+		"fg":     game.PF_fg,
+		"vi":     game.PF_vi,
+		"ci":     game.PF_ci,
+		"spread": game.PF_spread,
+		"cm":     game.PF_cm,
+		"sym":    game.PF_sym,
+		"cas":    game.PF_cas,
+		"raw":    game.PF_raw,
+		"full":   0xffff &^ game.PF_raw,
+	}
+	for sf, uf := range pfm {
+		if ok, err = pf.GetBool(sf); err != nil {
+			return
+		}
+		if ok {
+			sp.PF |= uf
+		}
+	}
+	return
+}
+
+// scanCmd represents the `scan` command
+var scanCmd = &cobra.Command{
+	Use:     "scan",
+	Aliases: []string{"bf", "mc", "bruteforce", "montecarlo"},
+	Short:   scanShort,
+	Long:    scanLong,
+	Example: fmt.Sprintf(scanExmp, cfg.AppName),
+	Run: func(cmd *cobra.Command, args []string) {
+		var err error
+		var exitctx = Startup()
+		var pf = cmd.Flags()
+
+		// Load yaml-files
+		var noembed bool
+		if noembed, err = pf.GetBool("noembed"); err != nil {
+			cfg.Fatalf(err.Error())
+			return
+		}
+		if !noembed {
+			if _, err = LoadInternalYaml(exitctx); err != nil {
+				cfg.Fatalf("can not load internal yaml files: %s", err.Error())
+				return
+			}
+		}
+		if err = LoadExternalYaml(exitctx); err != nil {
+			cfg.Fatalf("can not load external yaml files: %s", err.Error())
+			return
+		}
+		UpdateAlgList()
+
+		var alias string
+		if alias, err = pf.GetString("game"); err != nil {
+			cfg.Fatalf(err.Error())
+			return
+		}
+		var aid = util.ToID(alias)
+		var gi *game.GameInfo
+		var ok bool
+		if gi, ok = game.InfoMap[aid]; !ok {
+			cfg.Fatalf("game name \"%s\" does not recognized", alias)
+			return
+		}
+		if len(gi.RTP) == 0 {
+			cfg.Fatalf("RTP list does not complete for \"%s\"", alias)
+			return
+		}
+
+		var scan game.Scanner
+		if scan, ok = game.ScanFactory[aid]; !ok {
+			cfg.Fatalf("game name \"%s\" does not recognized", alias)
+			return
+		}
+		if scan == nil {
+			fmt.Println()
+			fmt.Printf("*** scanner for '%s' game does not provided ***\n", gi.ID())
+		}
+
+		var sp game.ScanPar
+
+		switch cmd.CalledAs() {
+		case "scan", "bf", "bruteforce":
+			sp.Method = game.CMbruteforce
+		case "mc", "montecarlo":
+			sp.Method = game.CMmontecarlo
+		}
+
+		if err = SetupParSheet(pf, &sp, gi); err != nil {
+			cfg.Fatalf(err.Error())
+			return
+		}
+
+		scan(exitctx, &sp)
+	},
+}
+
+func init() {
+	rootCmd.AddCommand(scanCmd)
+
+	var f = scanCmd.Flags()
+	f.Bool("noembed", false, "do not load embedded yaml files, useful for development")
+	f.StringP("game", "g", "", "identifier of game to scan")
+	// ParSheet
+	f.Int("mt", 0, "multithreaded scanning threads number")
+	f.Float64P("rtp", "r", cfg.DefMRTP, "master RTP of game")
+	f.IntP("sel", "l", 0, "number of selected bet lines, 0 for all")
+	f.Float64("conf", 95, "confidence probability, in percents")
+	f.Uint64P("total", "n", 10, "Monte Carlo method iterations number, in millions")
+	f.Float64P("prec", "p", 0.1, "precision of result for Monte Carlo method, in percents")
+	// print flags
+	f.Bool("main", true, "print RTP, sigma and other main information")
+	f.Bool("jack", true, "print info about progressive jackpots")
+	f.Bool("fg", true, "print info for bonus reels")
+	f.Bool("vi", true, "print volatility index")
+	f.Bool("ci", true, "print index of convergence")
+	f.Bool("spread", false, "print RTP spread")
+	f.Bool("cm", false, "print cascade metrics")
+	f.Bool("sym", false, "print symbols contribution to payouts")
+	f.Bool("cas", false, "print cascades contribution to payouts")
+	f.Bool("raw", false, "simulator raw data")
+	f.Bool("full", false, "print full parsheet (switch on all print-flags except raw data)")
+
+	f.SortFlags = false
+
+	scanCmd.MarkFlagRequired("game")
+}

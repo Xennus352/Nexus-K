@@ -1,0 +1,45 @@
+
+# Megajack / Champagne
+
+megajack/champagne/jack
+
+---
+
+95.958662: 1048576
+
+---
+
+megajack/champagne/rmap
+
+---
+
+# RTP list of available reels:
+# 95.958662
+
+# Original reels.
+# *bonus games calculations*
+# len = 5, avr bottle gain = 68, E = 168
+# *bonus reels calculations*
+# completed 100%, selected 1 lines, time spent 2.1270455s
+# reels lengths [32, 32, 32, 32, 32], total reshuffles 33554432
+# symbols: 138.99(lined) + 0.7242(scatter) = 139.718556%
+# free spins 7171740, q = 0.21373, sq = 1/(1-q) = 1.271835
+# free games hit rate: 1/140.36
+# champagne bonuses: hit rate 1/3043.5, rtp = 5.519986%
+# jackpots: count 32, frequency 1/1048576
+# RTP = sq*(rtp(sym)+rtp(mjc)) = 1.2718*(139.72+5.52) = 184.719467%
+# *regular reels calculations*
+# completed 100%, selected 1 lines, time spent 2.1748725s
+# reels lengths [32, 32, 32, 32, 32], total reshuffles 33554432
+# symbols: 69.974(lined) + 0.7242(scatter) = 70.698214%
+# free spins 3585870, q = 0.106867
+# free games hit rate: 1/140.36
+# champagne bonuses: hit rate 1/3043.5, rtp = 5.519986%
+# jackpots: count 32, frequency 1/1048576
+# RTP = rtp(sym) + rtp(mjc) + q*rtp(fg) = 70.698 + 5.52 + 0.10687*184.72 = 95.958662%
+95.958662:
+  - [12, 1, 5, 2, 12, 11, 2, 11, 12, 3, 2, 8, 12, 3, 4, 6, 12, 2, 5, 10, 3, 9, 7, 8, 4, 3, 7, 9, 2, 3, 4, 6]
+  - [2, 5, 10, 12, 9, 6, 3, 4, 12, 2, 6, 8, 3, 12, 11, 2, 11, 12, 5, 7, 4, 6, 3, 4, 12, 2, 5, 8, 2, 7, 1, 9]
+  - [12, 5, 10, 12, 9, 6, 3, 4, 12, 2, 6, 8, 3, 12, 11, 2, 11, 12, 5, 7, 4, 6, 3, 4, 12, 2, 5, 8, 12, 7, 1, 9]
+  - [12, 8, 2, 12, 6, 5, 2, 4, 12, 2, 1, 3, 2, 9, 7, 12, 11, 11, 11, 11, 12, 5, 2, 12, 8, 6, 2, 3, 10, 12, 2, 4]
+  - [12, 11, 7, 12, 6, 4, 12, 3, 2, 12, 3, 7, 12, 3, 5, 1, 12, 3, 8, 9, 12, 4, 3, 2, 12, 5, 3, 10, 2, 12, 3, 6]

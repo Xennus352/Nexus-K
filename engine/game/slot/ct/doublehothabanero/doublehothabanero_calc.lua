@@ -1,0 +1,136 @@
+-- CT Interactive / Double Hot Habanero
+-- RTP calculation
+
+-- 1. REEL STRIPS DATA
+local REELS = {
+	-- luacheck: push ignore 631
+	{10, 8, 8, 8, 8, 2, 5, 5, 5, 4, 6, 6, 4, 5, 5, 5, 6, 6, 6, 4, 3, 2, 9, 10, 10, 10, 10, 7, 7, 7, 7, 3, 10, 10, 10, 10, 3, 4, 3, 9, 9, 9, 9, 8, 8, 8, 8, 4, 9, 9, 9, 9, 7, 7, 7, 7, 6, 6, 6, 5, 5, 3},
+	{10, 10, 10, 10, 4, 3, 6, 6, 6, 9, 9, 9, 9, 3, 4, 10, 9, 9, 9, 9, 8, 8, 8, 8, 9, 10, 10, 10, 10, 1, 4, 8, 8, 8, 8, 4, 3, 2, 1, 6, 6, 7, 7, 7, 7, 5, 5, 5, 2, 6, 6, 6, 4, 5, 5, 5, 3, 5, 5, 7, 7, 7, 7, 1, 3},
+	{10, 10, 10, 10, 4, 2, 9, 9, 9, 9, 3, 9, 2, 1, 6, 6, 6, 5, 5, 6, 6, 6, 7, 7, 7, 7, 8, 8, 8, 8, 4, 9, 9, 9, 9, 5, 5, 5, 1, 6, 6, 3, 1, 4, 3, 10, 10, 10, 10, 4, 3, 8, 8, 8, 8, 5, 5, 5, 4, 10, 7, 7, 7, 7, 3},
+	{9, 9, 9, 9, 3, 2, 10, 10, 10, 10, 8, 8, 8, 8, 5, 7, 7, 7, 7, 5, 5, 5, 4, 3, 10, 6, 6, 6, 5, 5, 5, 6, 4, 1, 4, 3, 4, 2, 7, 3, 8, 8, 8, 8, 6, 6, 6, 10, 10, 10, 10, 9, 4, 9, 9, 9, 9, 3, 8, 1, 7, 7, 7, 7, 1},
+	{7, 7, 7, 7, 5, 5, 5, 9, 5, 5, 4, 3, 10, 10, 10, 10, 8, 8, 8, 8, 5, 5, 5, 3, 8, 8, 8, 8, 2, 3, 7, 7, 7, 7, 4, 6, 6, 4, 6, 6, 6, 10, 4, 9, 9, 9, 9, 6, 6, 6, 4, 2, 3, 9, 9, 9, 9, 3, 10, 10, 10, 10},
+	-- luacheck: pop
+}
+
+-- 2. PAYTABLE FOR LINE WINS (indexed by symbol ID)
+local PAYTABLE_LINE = {
+	[ 1] = {},                    -- wild (2, 3, 4 reels only)
+	[ 2] = {},                    -- scatter
+	[ 3] = {0, 0, 50, 150, 1000}, -- woman
+	[ 4] = {0, 0, 30, 50, 500},   -- man
+	[ 5] = {0, 0, 30, 50, 200},   -- crayfish
+	[ 6] = {0, 0, 10, 20, 150},   -- shrimp
+	[ 7] = {0, 0, 5, 20, 50},     -- ananas
+	[ 8] = {0, 0, 5, 20, 50},     -- lime
+	[ 9] = {0, 0, 5, 20, 50},     -- corn
+	[10] = {0, 0, 5, 20, 50},     -- banana
+}
+
+-- 3. PAYTABLE FOR SCATTER WINS (for 1 selected line bet)
+local PAYTABLE_SCAT = {0, 0, 10, 20, 100}
+local scat_min = 3 -- minimum scatters to win
+
+-- 4. CONFIGURATION
+local sx, sy = 5, 3 -- grid width & height
+local wild, scat = 1, 2 -- wild & scatter symbol IDs
+
+-- Performs full RTP calculation for given reels
+local function calculate(reels)
+	assert(#reels == sx, "unexpected number of reels")
+
+	-- Get number of total reshuffles and lengths of each reel.
+	local N, L = 1, {}
+	for i, r in ipairs(reels) do
+		N = N * #r
+		L[i] = #r
+	end
+
+	-- Count symbols occurrences on each reel
+	local counts = {}
+	for sym_id in pairs(PAYTABLE_LINE) do
+		counts[sym_id] = {}
+		for i = 1, sx do counts[sym_id][i] = 0 end
+	end
+	for i, r in ipairs(reels) do
+		for _, sym in ipairs(r) do
+			counts[sym][i] = counts[sym][i] + 1
+		end
+	end
+
+	-- Function to calculate expected return from line wins
+	local function calculate_line_ev()
+		local ev_sum = 0
+		local w = counts[wild]
+
+		-- Iterate through all symbols that pay on lines
+		for sym_id, pays in pairs(PAYTABLE_LINE) do
+			if sym_id ~= wild and #pays > 0 then
+				local s = counts[sym_id]
+				-- Function to calculate the expected value of a combination of length N.
+				local function get_comb_ev(n, payout)
+					if payout <= 0 then return 0 end
+
+					local comb_ev = payout
+					for i = 1, sx do
+						if i <= n then
+							if i >= 2 and i <= 4 then
+								comb_ev = comb_ev * (s[i] + w[i] * 2)
+							else
+								comb_ev = comb_ev * (s[i] + w[i])
+							end
+						elseif i == n + 1 then
+							comb_ev = comb_ev * (L[i] - (s[i] + w[i]))
+						else
+							comb_ev = comb_ev * L[i]
+						end
+					end
+					return comb_ev
+				end
+				for n = 3, sx do
+					ev_sum = ev_sum + get_comb_ev(n, pays[n])
+				end
+			end
+		end
+
+		return ev_sum
+	end
+
+	-- Function to calculate expected return from scatter wins
+	local function calculate_scat_ev()
+		local c = counts[scat]
+		local ev_sum = 0
+
+		-- Using an recursive approach to sum combinations for exactly N scatters
+		local function find_scatter_combs(reel_index, scat_sum, current_comb)
+			if reel_index > sx then
+				if scat_sum >= scat_min then
+					ev_sum = ev_sum + current_comb * PAYTABLE_SCAT[scat_sum]
+				end
+				return
+			end
+			-- Step 1: having a scatter on this reel
+			find_scatter_combs(reel_index + 1, scat_sum + 1,
+				current_comb * c[reel_index] * sy)
+			-- Step 2: NOT having a scatter on this reel
+			find_scatter_combs(reel_index + 1, scat_sum,
+				current_comb * (L[reel_index] - c[reel_index] * sy))
+		end
+		find_scatter_combs(1, 0, 1) -- Start recursion
+
+		return ev_sum
+	end
+
+	-- Execute calculation
+	local rtp_line = calculate_line_ev() / N
+	local rtp_scat = calculate_scat_ev() / N
+	local rtp_total = rtp_line + rtp_scat
+	print(string.format("reels lengths [%s], total reshuffles %d", table.concat(L, ", "), N))
+	print(string.format("RTP = %.5g(lined) + %.5g(scatter) = %.6f%%", rtp_line*100, rtp_scat*100, rtp_total*100))
+	return rtp_total
+end
+
+if autoscan then
+	return calculate
+end
+
+calculate(REELS)

@@ -1,0 +1,62 @@
+package simsalabim
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"math"
+
+	"github.com/slotopol/server/game/slot"
+)
+
+const EVne12 = 3 * 100
+
+func CalcStatBon(ctx context.Context, sp *slot.ScanPar) (float64, float64) {
+	var g = NewGame(sp.Sel)
+	g.FSR = 10 // set free spins mode
+	var s = slot.NewStatGeneric(sn, 5)
+
+	var calc = func(w io.Writer) (float64, float64) {
+		var lrtp, srtp = s.RTPsym(g.Cost(), scat)
+		var rtpsym = lrtp + srtp
+		var q = s.FSQ()
+		var sq = 1 / (1 - q)
+		var rtp = sq * rtpsym
+		fmt.Fprintf(w, "symbols: %.5g(lined) + %.5g(scatter) = %.6f%%\n", lrtp*100, srtp*100, rtpsym*100)
+		fmt.Fprintf(w, "free: HRfg = 1/%.5g, q = %.5g, sq = 1/(1-q) = %.5g\n", 1/s.FGQ(), q, sq)
+		fmt.Fprintf(w, "RTP = sq*rtp(sym) = %.5g*%.5g = %.6f%%\n", sq, rtpsym*100, rtp*100)
+		return rtp, math.NaN()
+	}
+
+	return slot.ScanReelsCommon(ctx, sp, s, g, calc)
+}
+
+func CalcStatReg(ctx context.Context, sp *slot.ScanPar) (float64, float64) {
+	fmt.Printf("*bonus reels calculations*\n")
+	var rtpfs, _ = CalcStatBon(ctx, sp)
+	if ctx.Err() != nil {
+		return 0, 0
+	}
+	fmt.Printf("*regular reels calculations*\n")
+	var g = NewGame(sp.Sel)
+	var s = slot.NewStatGeneric(sn, 5)
+	s.BonDim(ne12)
+
+	var calc = func(w io.Writer) (float64, float64) {
+		var N = s.Count()
+		var lrtp, srtp = s.RTPsym(g.Cost(), scat)
+		var rtpsym = lrtp + srtp
+		var q = s.FSQ()
+		var sq = 1 / (1 - q)
+		var qne12 = s.BonusHits(ne12) / N / float64(g.Sel)
+		var rtpne12 = EVne12 * qne12
+		var rtp = rtpsym + rtpne12 + q*rtpfs
+		fmt.Fprintf(w, "symbols: %.5g(lined) + %.5g(scatter) = %.6f%%\n", lrtp*100, srtp*100, rtpsym*100)
+		fmt.Fprintf(w, "free: HRfg = 1/%.5g, q = %.5g, sq = 1/(1-q) = %.5g\n", 1/s.FGQ(), q, sq)
+		fmt.Fprintf(w, "ne12 bonuses: hit rate 1/%.5g, rtp = %.6f%%\n", N/s.BonusHits(ne12), rtpne12*100)
+		fmt.Fprintf(w, "RTP = %.5g(sym) + %.5g(ne12) + %.5g*%.5g(fg) = %.6f%%\n", rtpsym*100, rtpne12*100, q, rtpfs*100, rtp*100)
+		return rtp, math.NaN()
+	}
+
+	return slot.ScanReelsCommon(ctx, sp, s, g, calc)
+}

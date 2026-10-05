@@ -1,0 +1,40 @@
+//go:build !prod || full || netent
+
+package reelsteal
+
+import (
+	_ "embed"
+
+	"github.com/slotopol/server/game"
+)
+
+//go:embed reelsteal_data.yaml
+var data []byte
+
+var Info = game.AlgInfo{
+	Aliases: []game.GameAlias{
+		{Prov: "NetEnt", Name: "Reel Steal", LNum: 9, Date: game.Date(2008, 10, 3)}, // see: https://www.slotsmate.com/software/netent/reel-steal
+	},
+	AlgDescr: game.AlgDescr{
+		GT: game.GTslot,
+		GP: game.GPlpay |
+			game.GPlsel |
+			game.GPfgonce |
+			game.GPfgmult |
+			game.GPscat |
+			game.GPwild |
+			game.GPwmult,
+		SX: 5,
+		SY: 3,
+		SN: sn,
+		LN: len(BetLines),
+		BN: 0,
+	},
+	Update: func(ai *game.AlgInfo) { ai.RTP = game.MakeRtpList(ReelsMap) },
+}
+
+func init() {
+	Info.SetupFactory(func(sel int) game.Gamble { return NewGame(sel) }, CalcStat)
+	game.DataRouter["netent/reelsteal/rmap"] = &ReelsMap
+	game.LoadMap = append(game.LoadMap, data)
+}

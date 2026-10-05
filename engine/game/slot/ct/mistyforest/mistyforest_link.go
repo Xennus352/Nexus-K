@@ -1,0 +1,40 @@
+//go:build !prod || full || ct
+
+package mistyforest
+
+import (
+	_ "embed"
+
+	"github.com/slotopol/server/game"
+)
+
+//go:embed mistyforest_data.yaml
+var data []byte
+
+var Info = game.AlgInfo{
+	Aliases: []game.GameAlias{
+		{Prov: "CT Interactive", Name: "Misty Forest", LNum: 20, Date: game.Date(2017, 10, 5)},  // see: https://www.slotsmate.com/software/ct-interactive/misty-forest
+		{Prov: "CT Interactive", Name: "Goblin's Gold", LNum: 20, Date: game.Date(2023, 5, 12)}, // see: https://www.livebet.com/casino/slots/ct-interactive/goblin-s-gold
+	},
+	AlgDescr: game.AlgDescr{
+		GT: game.GTslot,
+		GP: game.GPlpay |
+			game.GPlsel |
+			game.GPfgseq |
+			game.GPfgmult |
+			game.GPscat |
+			game.GPrwild,
+		SX: 5,
+		SY: 3,
+		SN: sn,
+		LN: len(BetLines),
+		BN: 0,
+	},
+	Update: func(ai *game.AlgInfo) { ai.RTP = game.MakeRtpList(ReelsMap) },
+}
+
+func init() {
+	Info.SetupFactory(func(sel int) game.Gamble { return NewGame(sel) }, CalcStat)
+	game.DataRouter["ctinteractive/mistyforest/rmap"] = &ReelsMap
+	game.LoadMap = append(game.LoadMap, data)
+}

@@ -1,0 +1,167 @@
+package trolls
+
+import (
+	"github.com/slotopol/server/game/slot"
+)
+
+const (
+	sn                 = 14         // number of symbols
+	wild1, wild2, scat = 12, 13, 14 // wild & scatter symbol IDs
+)
+
+var ReelsMap slot.ReelsMap[slot.Reelx]
+
+// Lined payment.
+var LinePay = [sn][5]float64{
+	{0, 3, 25, 100, 750},      //  1 troll1
+	{0, 0, 25, 100, 500},      //  2 troll2
+	{0, 0, 15, 100, 500},      //  3 troll3
+	{0, 0, 10, 75, 250},       //  4 troll4
+	{0, 0, 10, 75, 250},       //  5 troll5
+	{0, 0, 10, 50, 200},       //  6 troll6
+	{0, 0, 5, 50, 150},        //  7 ace
+	{0, 0, 5, 25, 125},        //  8 king
+	{0, 0, 5, 25, 125},        //  9 queen
+	{0, 0, 5, 25, 125},        // 10 jack
+	{0, 2, 5, 25, 100},        // 11 ten
+	{0, 10, 250, 2500, 10000}, // 12 wild
+	{},                        // 13 golden (3 reel only)
+	{},                        // 14 scatter
+}
+
+// Scatters payment.
+var ScatPay = [5]float64{0, 2, 5, 25, 500} // 14 scatter
+
+// Scatter freespins table
+var ScatFreespin = [5]int{0, 0, 10, 20, 30} // 14 scatter
+
+// Bet lines
+var BetLines = slot.BetLinesNetEnt5x3[:]
+
+type Game struct {
+	slot.Grid5x3 `yaml:",inline"`
+	slot.Slotx   `yaml:",inline"`
+}
+
+// Declare conformity with SlotGeneric interface.
+var _ slot.SlotGeneric = (*Game)(nil)
+
+func NewGame(sel int) *Game {
+	var g = &Game{
+		Slotx: slot.Slotx{
+			Sel: sel,
+			Bet: 1,
+		},
+	}
+	g.SpinReels(g.GetReels(slot.InitRTP))
+	return g
+}
+
+func (g *Game) Clone() slot.SlotGeneric {
+	var clone = *g
+	return &clone
+}
+
+func (g *Game) Scanner(wins *slot.Wins) error {
+	g.ScanLined(wins)
+	g.ScanScatters(wins)
+	return nil
+}
+
+// Lined symbols calculation.
+func (g *Game) ScanLined(wins *slot.Wins) {
+	for li, line := range BetLines[:g.Sel] {
+		var mw float64 = 1 // mult wild
+		var numw, numl slot.Pos = 0, 5
+		var syml slot.Sym
+		var x slot.Pos
+		for x = 1; x <= 5; x++ {
+			var sx = g.LX(x, line)
+			if sx == wild1 {
+				if syml == 0 {
+					numw = x
+				}
+				if mw < 4 {
+					mw = 2
+				}
+			} else if sx == wild2 {
+				if syml == 0 {
+					numw = x
+				}
+				mw = 4
+			} else if syml == 0 {
+				syml = sx
+			} else if sx != syml {
+				numl = x - 1
+				break
+			}
+		}
+
+		var payw, payl float64
+		if numw >= 2 {
+			payw = LinePay[wild1-1][numw-1]
+		}
+		if numl >= 2 && syml > 0 {
+			payl = LinePay[syml-1][numl-1]
+		}
+		if payl*mw > payw {
+			var mm float64 = 1 // mult mode
+			if g.FSR > 0 {
+				mm = 3
+			}
+			*wins = append(*wins, slot.WinItem{
+				Pay: g.Bet * payl,
+				MP:  mw * mm,
+				Sym: syml,
+				Num: numl,
+				LI:  li + 1,
+				XY:  line.HitxL(numl),
+			})
+		} else if payw > 0 {
+			var mm float64 = 1 // mult mode
+			if g.FSR > 0 {
+				mm = 3
+			}
+			*wins = append(*wins, slot.WinItem{
+				Pay: g.Bet * payw,
+				MP:  mm, // no multiplyer on line by double symbol
+				Sym: wild1,
+				Num: numw,
+				LI:  li + 1,
+				XY:  line.HitxL(numw),
+			})
+		}
+	}
+}
+
+// Scatters calculation.
+func (g *Game) ScanScatters(wins *slot.Wins) {
+	if count := g.SymNum(scat); count >= 2 {
+		var mm float64 = 1 // mult mode
+		if g.FSR > 0 {
+			mm = 3
+		}
+		var pay, fs = ScatPay[count-1], ScatFreespin[count-1]
+		*wins = append(*wins, slot.WinItem{
+			Pay: g.Bet * float64(g.Sel) * pay,
+			MP:  mm,
+			Sym: scat,
+			Num: count,
+			XY:  g.SymPos(scat),
+			FS:  fs,
+		})
+	}
+}
+
+func (g *Game) GetReels(mrtp float64) slot.Reelx {
+	var reels, _ = ReelsMap.FindClosest(mrtp)
+	return reels
+}
+
+func (g *Game) Spin(mrtp float64) {
+	g.SpinReels(g.GetReels(mrtp))
+}
+
+func (g *Game) SetSel(sel int) error {
+	return g.SetSelNum(sel, len(BetLines))
+}

@@ -1,0 +1,44 @@
+local scripts = arg[0]:match("^(.*generator[/%\\])")
+dofile(scripts.."lib/makereel.lua")
+
+local symset = {
+	4, -- 1 wild    (2, 3, 4 reels only)
+	1, -- 2 scatter
+	4, -- 3 seven   1000
+	5, -- 4 dead    150
+	5, -- 5 cat     80
+	5, -- 6 vampire 80
+	6, -- 7 pot     80
+	6, -- 8 hat     80
+	6, -- 9 scull   80
+}
+
+local chunklen = {
+	4, -- 1 wild
+	1, -- 2 scatter
+	4, -- 3 seven
+	4, -- 4 dead
+	4, -- 5 cat
+	4, -- 6 vampire
+	4, -- 7 pot
+	4, -- 8 hat
+	4, -- 9 scull
+}
+
+local function reelgen(n)
+	local ss = tcopy(symset)
+	if n == 1 or n == 5 then
+		ss[1] = 0
+	end
+	return makereelhot(ss, 3, {[2]=true}, chunklen)
+end
+
+if autoscan then
+	return reelgen
+end
+
+math.randomseed(os.time())
+print "reel 1, 5"
+printreel(reelgen(1))
+print "reel 2, 3, 4"
+printreel(reelgen(2))

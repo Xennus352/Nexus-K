@@ -1,6 +1,6 @@
 # Typical usage:
-#   docker build --build-arg "BUILDVERS=$(git describe --tags --always)" --progress=plain --pull --rm -f "Dockerfile" -t slotopol:latest .
-#   docker run -d -p 8080:8080 slotopol
+#   docker build --build-arg "BUILDVERS=$(git describe --tags --always)" --progress=plain --pull --rm -f "Dockerfile" -t schwarzlichtbezirk/slotopol:latest "."
+#   docker run -d -p 8080:8080 schwarzlichtbezirk/slotopol
 
 ##
 ## Build stage
@@ -11,7 +11,6 @@ FROM golang:1.27-bookworm AS builder
 
 # Make project root folder as current dir.
 WORKDIR /go/src/github.com/slotopol/server
-
 # Copy only go.mod and go.sum to prevent downloads all dependencies again on any code changes.
 COPY go.mod go.sum ./
 # Download all dependencies pointed at go.mod file.
@@ -31,17 +30,16 @@ RUN ./task/build-docker.sh
 ## Deploy stage
 ##
 
-# Thin deploy image with minimal base for shell/entrypoint.
-FROM gcr.io/distroless/static-debian12:nonroot
+# Thin deploy image.
+FROM scratch
 
 # Copy compiled executable and configuration files to new image destination.
 COPY --from=builder /go/bin /go/bin
-# Copy entrypoint script
-COPY entrypoint.sh /entrypoint.sh
 
 # Open REST listen port.
 EXPOSE 8080
 
-# Run application with entrypoint for config handling.
-ENTRYPOINT ["/entrypoint.sh"]
-CMD ["-v", "web"]
+# Run application with full path representation.
+# Without shell to get signal for graceful shutdown.
+ENTRYPOINT ["/go/bin/app"]
+CMD ["-vv", "web"]

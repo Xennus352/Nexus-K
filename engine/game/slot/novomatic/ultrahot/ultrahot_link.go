@@ -1,0 +1,39 @@
+//go:build !prod || full || novomatic
+
+package ultrahot
+
+import (
+	_ "embed"
+
+	"github.com/slotopol/server/game"
+)
+
+//go:embed ultrahot_data.yaml
+var data []byte
+
+var Info = game.AlgInfo{
+	Aliases: []game.GameAlias{
+		{Prov: "Novomatic", Name: "Ultra Hot", LNum: 5, Date: game.Year(2002)},                // see: https://www.slotsmate.com/software/novomatic/ultra-hot
+		{Prov: "Novomatic", Name: "Ultra Hot Deluxe", LNum: 5, Date: game.Date(2008, 11, 18)}, // see: https://www.slotsmate.com/software/novomatic/ultrahot-deluxe
+		{Prov: "Novomatic", Name: "Ultra Gems", LNum: 5, Date: game.Date(2018, 1, 15)},        // see: https://www.slotsmate.com/software/novomatic/ultra-gems
+		{Prov: "Novomatic", Name: "Hot Chance", LNum: 5, Date: game.Date(2015, 1, 11)},        // see: https://www.slotsmate.com/software/novomatic/hot-chance
+	},
+	AlgDescr: game.AlgDescr{
+		GT: game.GTslot,
+		GP: game.GPlsel |
+			game.GPfill |
+			game.GPfgno,
+		SX: 3,
+		SY: 3,
+		SN: sn,
+		LN: len(BetLines),
+		BN: 0,
+	},
+	Update: func(ai *game.AlgInfo) { ai.RTP = game.MakeRtpList(ReelsMap) },
+}
+
+func init() {
+	Info.SetupFactory(func(sel int) game.Gamble { return NewGame(sel) }, CalcStat)
+	game.DataRouter["novomatic/ultrahot/rmap"] = &ReelsMap
+	game.LoadMap = append(game.LoadMap, data)
+}

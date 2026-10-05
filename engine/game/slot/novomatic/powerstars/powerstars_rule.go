@@ -1,0 +1,175 @@
+package powerstars
+
+// See: https://freeslotshub.com/novomatic/power-stars/
+
+import (
+	"math/rand/v2"
+
+	"github.com/slotopol/server/game/slot"
+)
+
+const (
+	sn   = 9 // number of symbols
+	wild = 9 // wild symbol IDs
+)
+
+var Reels slot.Reelx
+
+var ChanceMap slot.ReelsMap[float64]
+
+// Lined payment.
+var LinePay = [sn][5]float64{
+	{0, 0, 100, 500, 1000}, // 1 seven
+	{0, 0, 50, 200, 500},   // 2 bell
+	{0, 0, 20, 50, 200},    // 3 melon
+	{0, 0, 20, 50, 200},    // 4 grapes
+	{0, 0, 10, 30, 150},    // 5 plum
+	{0, 0, 10, 30, 150},    // 6 orange
+	{0, 0, 10, 20, 100},    // 7 lemon
+	{0, 0, 10, 20, 100},    // 8 cherry
+	{},                     // 9 star
+}
+
+// Bet lines
+var BetLines = slot.BetLinesNvm10[:]
+
+type Game struct {
+	slot.Grid5x3 `yaml:",inline"`
+	slot.Slotx   `yaml:",inline"`
+	// Pinned reel wild
+	PRW [5]int `json:"prw" yaml:"prw" xml:"prw"`
+}
+
+// Declare conformity with SlotGeneric interface.
+var _ slot.SlotGeneric = (*Game)(nil)
+
+func NewGame(sel int) *Game {
+	var g = &Game{
+		Slotx: slot.Slotx{
+			Sel: sel,
+			Bet: 1,
+		},
+	}
+	g.SpinReels(g.GetReels(slot.InitRTP))
+	return g
+}
+
+func (g *Game) Clone() slot.SlotGeneric {
+	var clone = *g
+	return &clone
+}
+
+func (g *Game) Scanner(wins *slot.Wins) error {
+	g.ScanLined(wins)
+	return nil
+}
+
+// Lined symbols calculation.
+func (g *Game) ScanLined(wins *slot.Wins) {
+	var reelwild [5]bool
+	var fsmask uint
+	for x := 1; x < 4; x++ { // 2, 3, 4 reels only
+		if g.PRW[x] > 0 {
+			reelwild[x] = true
+		} else {
+			for _, sy := range g.Grid[x] {
+				if sy == wild {
+					reelwild[x] = true
+					fsmask |= 1 << x
+					break
+				}
+			}
+		}
+	}
+
+	for li, line := range BetLines[:g.Sel] {
+		var syml, symr slot.Sym
+		var numl, numr slot.Pos
+		var payl, payr float64
+		var x slot.Pos
+
+		syml, numl = g.LX(1, line), 1
+		for x = 2; x <= 5; x++ {
+			var sx = g.LX(x, line)
+			if sx != syml && !reelwild[x-1] {
+				break
+			}
+			numl++
+		}
+		payl = LinePay[syml-1][numl-1]
+
+		if numl < 4 {
+			symr, numr = g.LX(5, line), 1
+			for x = 4; x >= 2; x-- {
+				var sx = g.LX(x, line)
+				if sx != symr && !reelwild[x-1] {
+					break
+				}
+				numr++
+			}
+			payr = LinePay[symr-1][numr-1]
+		}
+
+		if payl > payr {
+			*wins = append(*wins, slot.WinItem{
+				Pay: g.Bet * payl,
+				MP:  1,
+				Sym: syml,
+				Num: numl,
+				LI:  li + 1,
+				XY:  line.HitxL(numl),
+			})
+		} else if payr > 0 {
+			*wins = append(*wins, slot.WinItem{
+				Pay: g.Bet * payr,
+				MP:  1,
+				Sym: symr,
+				Num: numr,
+				LI:  li + 1,
+				XY:  line.HitxL(numr),
+			})
+		}
+		if fsmask > 0 {
+			*wins = append(*wins, slot.WinItem{
+				Sym: wild,
+				FS:  1,
+				XY:  slot.RH(fsmask),
+			})
+		}
+	}
+}
+
+func (g *Game) GetReels(mrtp float64) slot.Reelx {
+	return Reels
+}
+
+func (g *Game) Spin(mrtp float64) {
+	g.SpinReels(Reels)
+	var _, wc = ChanceMap.FindClosest(mrtp) // wild chance
+	var x, y slot.Pos
+	for x = 2; x <= 4; x++ {
+		if rand.Float64() < wc {
+			y = rand.N[slot.Pos](3) + 1
+			g.SetSym(x, y, wild)
+		}
+	}
+}
+
+func (g *Game) Apply(wins slot.Wins) {
+	g.Slotx.Apply(wins)
+
+	if g.FSR == 0 {
+		clear(g.PRW[:])
+	}
+	for _, wi := range wins {
+		if wi.FS > 0 {
+			for i := 0; wi.XY[i][0] != 0; i++ {
+				g.PRW[wi.XY[i][0]-1] = 1
+			}
+		}
+	}
+}
+
+func (g *Game) SetSel(sel int) error {
+	return g.SetSelNum(sel, len(BetLines))
+}

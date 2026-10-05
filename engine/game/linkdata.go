@@ -1,0 +1,252 @@
+package game
+
+import (
+	"context"
+	"fmt"
+	"math"
+	"sort"
+
+	cfg "github.com/slotopol/server/config"
+	"github.com/slotopol/server/util"
+)
+
+type CM uint // Calculations method
+
+const (
+	CMbruteforce CM = iota + 1
+	CMmontecarlo
+	CMcombinatorics
+)
+
+type Gamble interface {
+	Spin(float64)         // fill the grid with random hits on reels closest to given RTP, constant function
+	GetBet() float64      // returns current bet, constant function
+	SetBet(float64) error // set bet to given value
+}
+
+type GT uint // Game type
+
+const (
+	GTslot GT = 1 + iota
+	GTkeno
+)
+
+type GP uint // Game properties
+
+const (
+	GPlpay GP = 1<<(iota+1) - 1 // pays left to right
+	GPrpay                      // pays left to right and right to left
+	GPapay                      // pays for combination at any position
+	GPcpay GP = 1 << iota       // pays by clusters
+
+	GPlsel // user can select bet lines
+	GPwsel // user can change ways set
+	_
+	_
+
+	GPjack  // cumulative jackpot is present
+	GPfill  // has multiplier on filled grid
+	GPmix   // has pays by combinations with mixed symbols (non-wilds)
+	GPcumul // has cumulative pays (in this case spin can fails if bank have not enough money)
+
+	GPbmode // has non-reels bonus mode
+	GPpick  // has game mode depending on the user's choice
+	GPcas   // cascade falls present
+	GPcfeat // has features on cascade avalanche levels (like multipliers, freespins, etc.)
+
+	GPfgonce // non-retriggered free games are present
+	GPfgtwic // free games that can be retriggered only once
+	GPfgseq  // free games that can be retriggered in a sequence
+	GPfgreel // separate reels on free games
+
+	GPrgmult // any multipliers on regular games
+	GPfgmult // any multipliers on free games
+	GPscat   // has scatters
+	GPstscat // has stacked scatters (several may appear on the reel)
+
+	GPwsc   // has wild/scatters symbols
+	GPwild  // has wild symbols
+	GPrwild // has reel wild symbols
+	GPbwild // has big (3x3) wild symbols
+
+	GPewild // has expanding wilds
+	GPwturn // symbols turns to wilds
+	GPwmult // has multiplier on wilds
+	GPbsym  // has big symbol reel (usually with 3x3 in the center on free games)
+
+	// free games are absent
+	GPfgno GP = 0
+	// any free games
+	GPfgany GP = GPfgonce | GPfgtwic | GPfgseq
+	// any wild symbols
+	GPwany GP = GPwsc | GPwild | GPrwild | GPbwild | GPewild
+	// any scatter symbols
+	GPscany GP = GPwsc | GPscat | GPstscat
+)
+
+const ( // print flags for slots
+	PF_main = 1 << iota // RTP, sigma and other main information
+
+	PF_jack   // info about progressive jackpots
+	PF_fg     // info for bonus reels
+	PF_vi     // volatility index
+	PF_ci     // convergence index
+	PF_spread // RTP spread
+	PF_cm     // cascade metrics
+	PF_sym    // symbols contribution to payouts
+	PF_cas    // cascades contribution to payouts
+	PF_raw    // simulator raw data
+)
+
+type (
+	// GameAlias structure describes the game target of algorithm.
+	// Several games can shares single algorithm, and in this case
+	// all those games presents in the list of aliases for this algorithm.
+	// All game rules, paytables and lines should be equal for this games,
+	// except maximum number of selected lines can differ. If maximum number
+	// of lines differ, algorithm receives largest number.
+	GameAlias struct {
+		Prov string    `json:"prov" yaml:"prov" xml:"prov"`                               // game provider
+		Name string    `json:"name" yaml:"name" xml:"name"`                               // game name
+		LNum int       `json:"lnum,omitempty" yaml:"lnum,omitempty" xml:"lnum,omitempty"` // maximum number of selectable lines
+		Date util.Unix `json:"date,omitempty" yaml:"date,omitempty" xml:"date,omitempty"` // game release date
+	}
+
+	AlgDescr struct {
+		GT  GT        `json:"gt,omitempty" yaml:"gt,omitempty" xml:"gt,omitempty"` // game type
+		GP  GP        `json:"gp,omitempty" yaml:"gp,omitempty" xml:"gp,omitempty"` // game properties
+		SX  int       `json:"sx,omitempty" yaml:"sx,omitempty" xml:"sx,omitempty"` // grid width
+		SY  int       `json:"sy,omitempty" yaml:"sy,omitempty" xml:"sy,omitempty"` // grid height
+		SN  int       `json:"sn,omitempty" yaml:"sn,omitempty" xml:"sn,omitempty"` // number of symbols
+		LN  int       `json:"ln,omitempty" yaml:"ln,omitempty" xml:"ln,omitempty"` // number of lines in bet lines set
+		WN  int       `json:"wn,omitempty" yaml:"wn,omitempty" xml:"wn,omitempty"` // number of ways
+		BN  int       `json:"bn,omitempty" yaml:"bn,omitempty" xml:"bn,omitempty"` // number of bonuses
+		RTP []float64 `json:"rtp" yaml:"rtp,flow" xml:"rtp"`                       // 'Return to Player' percents list
+	}
+
+	AlgInfo struct {
+		Aliases  []GameAlias `json:"aliases" yaml:"aliases" xml:"aliases"`
+		AlgDescr `yaml:",inline"`
+		Update   func(ai *AlgInfo) `json:"-" yaml:"-" xml:"-"` // closure to update fields
+	}
+
+	GameInfo struct {
+		GameAlias `yaml:",inline"`
+		*AlgDescr `yaml:",inline"`
+	}
+
+	ScanPar struct {
+		Method CM      // calculations method ID
+		TN     int     // threads number (0 to use all hardware available cores)
+		Total  uint64  // number of total spins
+		Prec   float64 // expected precision for Monte Carlo method
+		Conf   float64 // confidence (for Z, VI, CI)
+		MRTP   float64 // master RTP
+		Sel    int     // number of selected bet lines
+		PF     uint    // print flags
+	}
+
+	Scanner func(context.Context, *ScanPar) (float64, float64)
+)
+
+var (
+	AlgList     = []*AlgInfo{}
+	InfoMap     = map[string]*GameInfo{}
+	GameFactory = map[string]func() Gamble{}
+	ScanFactory = map[string]Scanner{}
+)
+
+var (
+	Year = util.Year
+	Date = util.Date
+)
+
+func MakeRtpList[T any](reelsmap map[float64]T) []float64 {
+	var list = make([]float64, 0, len(reelsmap))
+	for rtp := range reelsmap {
+		list = append(list, rtp)
+	}
+	sort.Float64s(list)
+	return list
+}
+
+func (ga *GameAlias) ID() string {
+	return util.ToID(ga.Prov + "/" + ga.Name)
+}
+
+func (ai *AlgInfo) SetupFactory(game func(int) Gamble, scan Scanner) {
+	AlgList = append(AlgList, ai)
+	for _, ga := range ai.Aliases {
+		var aid = ga.ID()
+		if _, ok := InfoMap[aid]; ok {
+			panic(fmt.Errorf("%s: %w", aid, ErrAidHas))
+		}
+		if ai.GT == GTslot {
+			if ga.LNum > ai.LN {
+				panic(fmt.Errorf("%s: %w", aid, ErrLNumOut))
+			}
+			if ai.LN > 0 && ga.LNum == 0 {
+				cfg.Warnf("%s: LNum is not set for game with lines set of %d lines", aid, ai.LN)
+			}
+			if ai.LN == 0 && ai.WN == 0 && ai.GP&GPcpay == 0 {
+				cfg.Warnf("%s: both LN and WN are zero", aid)
+			}
+		}
+		InfoMap[aid] = &GameInfo{
+			GameAlias: ga,
+			AlgDescr:  &ai.AlgDescr,
+		}
+		GameFactory[aid] = func() Gamble { return game(ga.LNum) }
+		ScanFactory[aid] = scan // can be nil
+	}
+}
+
+func (ad *AlgDescr) FindClosest(mrtp float64) (rtp float64) {
+	rtp = -1000 // lets to get first reels from map in any case
+	for _, p := range ad.RTP {
+		if math.Abs(mrtp-p) < math.Abs(mrtp-rtp) {
+			rtp = p
+		}
+	}
+	return
+}
+
+func (sp *ScanPar) IsMain() bool {
+	return sp.PF&PF_main != 0
+}
+
+func (sp *ScanPar) IsJack() bool {
+	return sp.PF&PF_jack != 0
+}
+
+func (sp *ScanPar) IsFG() bool {
+	return sp.PF&PF_fg != 0
+}
+
+func (sp *ScanPar) IsVI() bool {
+	return sp.PF&PF_vi != 0
+}
+
+func (sp *ScanPar) IsCI() bool {
+	return sp.PF&PF_ci != 0
+}
+
+func (sp *ScanPar) IsSpread() bool {
+	return sp.PF&PF_spread != 0
+}
+
+func (sp *ScanPar) IsCM() bool {
+	return sp.PF&PF_cm != 0
+}
+
+func (sp *ScanPar) IsSym() bool {
+	return sp.PF&PF_sym != 0
+}
+
+func (sp *ScanPar) IsCasc() bool {
+	return sp.PF&PF_cas != 0
+}
+
+func (sp *ScanPar) IsRaw() bool {
+	return sp.PF&PF_raw != 0
+}

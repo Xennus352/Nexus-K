@@ -1,0 +1,181 @@
+package lovelymermaid
+
+// See: https://www.slotsmate.com/software/novomatic/lovely-mermaid
+
+import (
+	"github.com/slotopol/server/game/slot"
+)
+
+const (
+	sn         = 13    // number of symbols
+	wild, scat = 1, 13 // wild & scatter symbol IDs
+	lmj        = 1     // jackpot ID
+)
+
+var ReelsMap slot.ReelsMap[slot.Reelx]
+
+var JackMap slot.ReelsMap[float64]
+
+// Lined payment.
+var LinePay = [sn][5]float64{
+	{0, 0, 20, 200, 2000}, //  1 mermaid
+	{0, 2, 10, 40, 400},   //  2 lobster
+	{0, 2, 10, 40, 400},   //  3 turtle
+	{0, 0, 8, 30, 300},    //  4 blowfish
+	{0, 0, 6, 20, 200},    //  5 seahorse
+	{0, 0, 6, 20, 200},    //  6 parrotfish
+	{0, 0, 4, 10, 100},    //  7 ace
+	{0, 0, 4, 10, 100},    //  8 king
+	{0, 0, 4, 10, 80},     //  9 queen
+	{0, 0, 4, 10, 80},     // 10 jack
+	{0, 0, 4, 10, 80},     // 11 ten
+	{0, 0, 4, 10, 80},     // 12 nine
+	{},                    // 13 scatter
+}
+
+// Scatters payment.
+var ScatPay = [5]float64{0, 0, 3, 20, 400} // 13 scatter
+
+// Bet lines
+var BetLines = slot.BetLinesNvm5x4[:]
+
+type Game struct {
+	slot.Grid5x4 `yaml:",inline"`
+	slot.Slotx   `yaml:",inline"`
+}
+
+// Declare conformity with SlotGeneric interface.
+var _ slot.SlotGeneric = (*Game)(nil)
+
+func NewGame(sel int) *Game {
+	var g = &Game{
+		Slotx: slot.Slotx{
+			Sel: sel,
+			Bet: 1,
+		},
+	}
+	g.SpinReels(g.GetReels(slot.InitRTP))
+	return g
+}
+
+func (g *Game) Clone() slot.SlotGeneric {
+	var clone = *g
+	return &clone
+}
+
+func (g *Game) Scanner(wins *slot.Wins) error {
+	g.ScanLined(wins)
+	g.ScanScatters(wins)
+	return nil
+}
+
+func (g *Game) Filled() slot.Sym {
+	var sym = g.Grid[4][3]
+	for _, sr := range g.Grid {
+		for _, sy := range sr {
+			if sy != sym {
+				return 0
+			}
+		}
+	}
+	return sym
+}
+
+// Lined symbols calculation.
+func (g *Game) ScanLined(wins *slot.Wins) {
+	if sym := g.Filled(); sym != 0 {
+		*wins = append(*wins, slot.WinItem{
+			Sym: sym,
+			JID: lmj,
+		})
+		return
+	}
+	for li, line := range BetLines[:g.Sel] {
+		var numw, numl slot.Pos = 0, 5
+		var syml slot.Sym
+		var x slot.Pos
+		for x = 1; x <= 5; x++ {
+			var sx = g.LX(x, line)
+			if sx == wild {
+				if syml == 0 {
+					numw = x
+				}
+			} else if syml == 0 {
+				syml = sx
+			} else if sx != syml {
+				numl = x - 1
+				break
+			}
+		}
+
+		var payw, payl float64
+		if numw >= 3 {
+			payw = LinePay[wild-1][numw-1]
+		}
+		if numl >= 2 && syml > 0 {
+			payl = LinePay[syml-1][numl-1]
+		}
+		if payl > payw {
+			*wins = append(*wins, slot.WinItem{
+				Pay: g.Bet * payl,
+				MP:  1,
+				Sym: syml,
+				Num: numl,
+				LI:  li + 1,
+				XY:  line.HitxL(numl),
+			})
+		} else if payw > 0 {
+			*wins = append(*wins, slot.WinItem{
+				Pay: g.Bet * payw,
+				MP:  1,
+				Sym: wild,
+				Num: numw,
+				LI:  li + 1,
+				XY:  line.HitxL(numw),
+			})
+		}
+	}
+}
+
+// Scatters calculation.
+func (g *Game) ScanScatters(wins *slot.Wins) {
+	if count := g.SymNum(scat); count >= 3 {
+		var pay = ScatPay[count-1]
+		*wins = append(*wins, slot.WinItem{
+			Pay: g.Bet * float64(g.Sel) * pay,
+			MP:  1,
+			Sym: scat,
+			Num: count,
+			XY:  g.SymPos(scat),
+			FS:  25,
+		})
+	}
+}
+
+func (g *Game) JackFreq(mrtp float64) []float64 {
+	var bulk, _ = JackMap.FindClosest(mrtp)
+	return []float64{bulk}
+}
+
+func (g *Game) GetReels(mrtp float64) slot.Reelx {
+	var reels, _ = ReelsMap.FindClosest(mrtp)
+	return reels
+}
+
+func (g *Game) Spin(mrtp float64) {
+	g.SpinReels(g.GetReels(mrtp))
+}
+
+func (g *Game) Spawn(wins slot.Wins, fund, mrtp float64) {
+	for i, wi := range wins {
+		if wi.JID != 0 {
+			var bulk, _ = JackMap.FindClosest(mrtp)
+			var jf = min(bulk*g.Bet/slot.JackBasis, 1)
+			wins[i].JR = jf * fund
+		}
+	}
+}
+
+func (g *Game) SetSel(sel int) error {
+	return g.SetSelNum(sel, len(BetLines))
+}

@@ -1,0 +1,57 @@
+package kenofast
+
+// See: https://agtsoftware.com/games/agt/keno
+
+import (
+	"github.com/slotopol/server/game/keno"
+)
+
+// RTP[ 1] = 95.000000%, sigma = 1.645448
+// RTP[ 2] = 98.101266%, sigma = 2.330240
+// RTP[ 3] = 95.740019%, sigma = 5.740484
+// RTP[ 4] = 95.685960%, sigma = 7.337319
+// RTP[ 5] = 95.123231%, sigma = 4.696337
+// RTP[ 6] = 95.083714%, sigma = 7.975907
+// RTP[ 7] = 95.540780%, sigma = 6.274271
+// RTP[ 8] = 95.576691%, sigma = 6.263043
+// RTP[ 9] = 95.086210%, sigma = 9.647693
+// RTP[10] = 95.231797%, sigma = 9.367404
+// RTP[game] = 95.616967%
+var Paytable = keno.Paytable{
+	{0},                                      //  0 sel
+	{0, 3.8},                                 //  1 sel
+	{0, 1, 10},                               //  2 sel
+	{0, 0, 2, 49},                            //  3 sel
+	{0, 0, 1, 8, 130},                        //  4 sel
+	{0, 0, 1, 4, 20, 160},                    //  5 sel
+	{0, 0, 0, 2, 15, 60, 600},                //  6 sel
+	{0, 0, 0, 2, 5, 29, 95, 1000},            //  7 sel
+	{1, 0, 0, 0, 5, 16, 50, 250, 2000},       //  8 sel
+	{2, 0, 0, 0, 2, 10, 30, 100, 1000, 8000}, //  9 sel
+	{2, 0, 0, 0, 0, 8, 20, 100, 330, 2000, 15000}, // 10 sel
+}
+
+type Game struct {
+	keno.Keno80 `yaml:",inline"`
+}
+
+// Declare conformity with KenoGame interface.
+var _ keno.KenoGame = (*Game)(nil)
+
+func NewGame() *Game {
+	var g = &Game{
+		Keno80: keno.Keno80{
+			Bet: 1,
+		},
+	}
+	g.Spin(keno.InitRTP)
+	return g
+}
+
+func (g *Game) Scanner(wins *keno.Wins) error {
+	return Paytable.Scanner(&g.Grid, wins, g.Bet)
+}
+
+func (g *Game) SetSel(sel keno.Bitset) error {
+	return g.CheckSel(sel, &Paytable)
+}

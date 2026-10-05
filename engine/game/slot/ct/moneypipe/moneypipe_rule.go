@@ -1,0 +1,136 @@
+package moneypipe
+
+// See: https://www.slotsmate.com/software/ct-interactive/money-pipe
+
+import (
+	"github.com/slotopol/server/game/slot"
+)
+
+const (
+	sn         = 10   // number of symbols
+	wild, scat = 1, 2 // wild & scatter symbol IDs
+)
+
+var ReelsMap slot.ReelsMap[slot.Reelx]
+
+// Lined payment.
+var LinePay = [sn][5]float64{
+	{},                  //  1 wild
+	{},                  //  2 scatter
+	{0, 0, 20, 70, 750}, //  3 dollar
+	{0, 0, 20, 30, 100}, //  4 pliers
+	{0, 0, 20, 30, 100}, //  5 hammer
+	{0, 0, 15, 30, 100}, //  6 worker
+	{0, 0, 15, 20, 100}, //  7 ace
+	{0, 0, 15, 20, 100}, //  8 king
+	{0, 0, 10, 20, 50},  //  9 queen
+	{0, 0, 10, 20, 50},  // 10 jack
+}
+
+// Bet lines
+var BetLines = slot.BetLinesNetEnt5x4[:]
+
+type Game struct {
+	slot.Grid5x4 `yaml:",inline"`
+	slot.Slotx   `yaml:",inline"`
+}
+
+// Declare conformity with SlotGeneric interface.
+var _ slot.SlotGeneric = (*Game)(nil)
+
+func NewGame(sel int) *Game {
+	var g = &Game{
+		Slotx: slot.Slotx{
+			Sel: sel,
+			Bet: 1,
+		},
+	}
+	g.SpinReels(g.GetReels(slot.InitRTP))
+	return g
+}
+
+func (g *Game) Clone() slot.SlotGeneric {
+	var clone = *g
+	return &clone
+}
+
+func (g *Game) Scanner(wins *slot.Wins) error {
+	g.ScanLined(wins)
+	g.ScanScatters(wins)
+	return nil
+}
+
+// Lined symbols calculation.
+func (g *Game) ScanLined(wins *slot.Wins) {
+	var gridwild = g.Grid5x4
+	for x := 0; x < 5; x += 3 { // 1, 3 reels only
+		for y := range 4 {
+			if g.Grid[x][y] == wild {
+				for i := x; i < x+3; i++ { // 1, 2, 3 or 3, 4, 5 reels
+					for j := y; j < 4; j++ { // down only
+						if gridwild.Grid[i][j] != scat {
+							gridwild.Grid[i][j] = wild
+						}
+					}
+				}
+				break
+			}
+		}
+	}
+
+	for li, line := range BetLines[:g.Sel] {
+		var numl slot.Pos = 5
+		var syml slot.Sym
+		var x slot.Pos
+		for x = 1; x <= 5; x++ {
+			var sx = gridwild.LX(x, line)
+			if sx == wild {
+				continue
+			} else if syml == 0 {
+				syml = sx
+			} else if sx != syml {
+				numl = x - 1
+				break
+			}
+		}
+
+		if pay := LinePay[syml-1][numl-1]; pay > 0 {
+			*wins = append(*wins, slot.WinItem{
+				Pay: g.Bet * pay,
+				MP:  1,
+				Sym: syml,
+				Num: numl,
+				LI:  li + 1,
+				XY:  line.HitxL(numl),
+			})
+		}
+	}
+}
+
+// Scatters calculation.
+func (g *Game) ScanScatters(wins *slot.Wins) {
+	if count := g.SymNum(scat); count >= 3 {
+		const pay, fs = 3, 10
+		*wins = append(*wins, slot.WinItem{
+			Pay: g.Bet * float64(g.Sel) * pay,
+			MP:  1,
+			Sym: scat,
+			Num: count,
+			XY:  g.SymPos(scat),
+			FS:  fs,
+		})
+	}
+}
+
+func (g *Game) GetReels(mrtp float64) slot.Reelx {
+	var reels, _ = ReelsMap.FindClosest(mrtp)
+	return reels
+}
+
+func (g *Game) Spin(mrtp float64) {
+	g.SpinReels(g.GetReels(mrtp))
+}
+
+func (g *Game) SetSel(sel int) error {
+	return slot.ErrDisabled
+}

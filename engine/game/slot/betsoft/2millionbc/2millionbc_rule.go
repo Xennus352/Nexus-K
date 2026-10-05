@@ -1,0 +1,177 @@
+package twomillionbc
+
+// See: https://www.slotsmate.com/software/betsoft/2-million-bc
+
+import (
+	"github.com/slotopol/server/game/slot"
+)
+
+const (
+	sn                   = 13         // number of symbols
+	scat, acorn, diamond = 11, 12, 13 // wild & scatter symbol IDs
+
+	acbn = 1 // acorn bonus
+	dlbn = 2 // diamond lion bonus
+)
+
+var ReelsBon slot.Reelx
+
+var ReelsMap slot.ReelsMap[slot.Reelx]
+
+// Lined payment.
+var LinePay = [sn][5]float64{
+	{0, 30, 100, 300, 500}, //  1 girl
+	{0, 15, 75, 200, 400},  //  2 lion
+	{0, 10, 60, 150, 300},  //  3 bee
+	{0, 5, 50, 125, 250},   //  4 stone
+	{0, 5, 40, 100, 200},   //  5 wheel
+	{0, 2, 30, 90, 150},    //  6 club
+	{0, 0, 25, 75, 125},    //  7 chaplet
+	{0, 0, 20, 60, 100},    //  8 gold
+	{0, 0, 15, 50, 75},     //  9 vase
+	{0, 0, 10, 25, 50},     // 10 ruby
+	{},                     // 11 fire
+	{},                     // 12 acorn (5 reel only)
+	{0, 0, 40, 100, 200},   // 13 diamond
+}
+
+// Scatter freespins table
+var ScatFreespin = [5]int{0, 0, 4, 12, 20} // 11 fire
+
+// Bet lines
+var BetLines = slot.BetLinesNetEnt5x3[:]
+
+type Game struct {
+	slot.Grid5x3 `yaml:",inline"`
+	slot.Slotx   `yaml:",inline"`
+	AP           float64 `json:"ap" yaml:"ap" xml:"ap"` // acorns pay
+	AC           int     `json:"an" yaml:"an" xml:"an"` // acorns counter
+}
+
+// Declare conformity with SlotGeneric interface.
+var _ slot.SlotGeneric = (*Game)(nil)
+
+func NewGame(sel int) *Game {
+	var g = &Game{
+		Slotx: slot.Slotx{
+			Sel: sel,
+			Bet: 1,
+		},
+	}
+	g.SpinReels(g.GetReels(slot.InitRTP))
+	return g
+}
+
+func (g *Game) Clone() slot.SlotGeneric {
+	var clone = *g
+	return &clone
+}
+
+func (g *Game) Scanner(wins *slot.Wins) error {
+	g.ScanLined(wins)
+	g.ScanScatters(wins)
+	return nil
+}
+
+// Lined symbols calculation.
+func (g *Game) ScanLined(wins *slot.Wins) {
+	for li, line := range BetLines[:g.Sel] {
+		var numl slot.Pos = 5
+		var syml = g.LX(1, line)
+		var x slot.Pos
+		for x = 2; x <= 5; x++ {
+			var sx = g.LX(x, line)
+			if sx != syml {
+				numl = x - 1
+				break
+			}
+		}
+
+		if pay := LinePay[syml-1][numl-1]; pay > 0 {
+			*wins = append(*wins, slot.WinItem{
+				Pay: g.Bet * pay,
+				MP:  1,
+				Sym: syml,
+				Num: numl,
+				LI:  li + 1,
+				XY:  line.HitxL(numl),
+			})
+		}
+		if syml == diamond && numl >= 3 {
+			*wins = append(*wins, slot.WinItem{
+				MP:  1,
+				Sym: diamond,
+				Num: numl,
+				LI:  li + 1,
+				XY:  line.HitxL(numl),
+				BID: dlbn,
+			})
+		}
+	}
+}
+
+// Scatters calculation.
+func (g *Game) ScanScatters(wins *slot.Wins) {
+	if count := g.SymNum(scat); count >= 3 {
+		var fs = ScatFreespin[count-1]
+		*wins = append(*wins, slot.WinItem{
+			Sym: scat,
+			Num: count,
+			XY:  g.SymPos(scat),
+			FS:  fs,
+		})
+	}
+
+	if g.At(5, 1) == acorn || g.At(5, 2) == acorn || g.At(5, 3) == acorn {
+		if (g.AC+1)%3 == 0 {
+			*wins = append(*wins, slot.WinItem{
+				MP:  1,
+				Sym: acorn,
+				Num: 1,
+				BID: acbn,
+			})
+		}
+	}
+}
+
+func (g *Game) GetReels(mrtp float64) slot.Reelx {
+	if g.FSR == 0 {
+		var reels, _ = ReelsMap.FindClosest(mrtp)
+		return reels
+	} else {
+		return ReelsBon
+	}
+}
+
+func (g *Game) Spin(mrtp float64) {
+	g.SpinReels(g.GetReels(mrtp))
+}
+
+func (g *Game) Spawn(wins slot.Wins, fund, mrtp float64) {
+	for i, wi := range wins {
+		switch wi.BID {
+		case acbn:
+			wins[i].Pay = AcornSpawn(g.AP + g.Bet*float64(g.Sel))
+		case dlbn:
+			wins[i].Pay = DiamondLionSpawn(g.Bet)
+		}
+	}
+}
+
+func (g *Game) Apply(wins slot.Wins) {
+	g.Slotx.Apply(wins)
+
+	if g.At(5, 1) == acorn || g.At(5, 2) == acorn || g.At(5, 3) == acorn {
+		g.AC++
+		g.AC %= 3
+		if g.AC > 0 {
+			g.AP += g.Bet * float64(g.Sel)
+		} else {
+			g.AP = 0
+		}
+	}
+}
+
+func (g *Game) SetSel(sel int) error {
+	return g.SetSelNum(sel, len(BetLines))
+}

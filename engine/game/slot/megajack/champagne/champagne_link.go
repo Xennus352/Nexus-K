@@ -1,0 +1,44 @@
+//go:build !prod || full || megajack
+
+package champagne
+
+import (
+	_ "embed"
+
+	"github.com/slotopol/server/game"
+)
+
+//go:embed champagne_data.yaml
+var data []byte
+
+var Info = game.AlgInfo{
+	Aliases: []game.GameAlias{
+		{Prov: "Megajack", Name: "Champagne", LNum: 21, Date: game.Year(1999)},
+		{Prov: "CT Interactive", Name: "Champagne and Fruits", LNum: 20, Date: game.Date(2022, 2, 1)}, // see: https://www.slotsmate.com/software/ct-interactive/champagne-and-fruits
+		{Prov: "CT Interactive", Name: "Bloody Princess", LNum: 20, Date: game.Date(2022, 10, 14)},    // see: https://www.slotsmate.com/software/ct-interactive/bloody-princess
+		{Prov: "CT Interactive", Name: "Monkey Kingdom", LNum: 20, Date: game.Date(2022, 6, 1)},       // see: https://www.slotsmate.com/software/ct-interactive/monkey-kingdom
+	},
+	AlgDescr: game.AlgDescr{
+		GT: game.GTslot,
+		GP: game.GPlpay |
+			game.GPlsel |
+			game.GPjack |
+			game.GPfgseq |
+			game.GPfgmult |
+			game.GPscat |
+			game.GPwild,
+		SX: 5,
+		SY: 3,
+		SN: sn,
+		LN: len(BetLines),
+		BN: 1,
+	},
+	Update: func(ai *game.AlgInfo) { ai.RTP = game.MakeRtpList(ReelsMap) },
+}
+
+func init() {
+	Info.SetupFactory(func(sel int) game.Gamble { return NewGame(sel) }, CalcStatReg)
+	game.DataRouter["megajack/champagne/rmap"] = &ReelsMap
+	game.DataRouter["megajack/champagne/jack"] = &JackMap
+	game.LoadMap = append(game.LoadMap, data)
+}

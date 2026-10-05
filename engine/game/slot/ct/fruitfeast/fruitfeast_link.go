@@ -1,0 +1,48 @@
+//go:build !prod || full || ct
+
+package fruitfeast
+
+import (
+	_ "embed"
+
+	"github.com/slotopol/server/game"
+)
+
+//go:embed fruitfeast_data.yaml
+var data []byte
+
+var Info = game.AlgInfo{
+	Aliases: []game.GameAlias{
+		{Prov: "CT Interactive", Name: "Fruit Feast", LNum: 40, Date: game.Date(2020, 9, 12)},          // see: https://www.slotsmate.com/software/ct-interactive/fruit-feast
+		{Prov: "CT Interactive", Name: "Golden Acorn", LNum: 40, Date: game.Date(2020, 11, 24)},        // see: https://www.slotsmate.com/software/ct-interactive/golden-acorn
+		{Prov: "CT Interactive", Name: "Wet and Juicy", LNum: 40, Date: game.Date(2018, 12, 12)},       // see: https://www.slotsmate.com/software/ct-interactive/wet-and-juicy
+		{Prov: "CT Interactive", Name: "Mountain Heroes", LNum: 40, Date: game.Date(2021, 11, 1)},      // see: https://www.slotsmate.com/software/ct-interactive/mountain-heroes
+		{Prov: "CT Interactive", Name: "40 Brilliants", LNum: 40, Date: game.Date(2020, 7, 1)},         // see: https://www.slotsmate.com/software/ct-interactive/40-brilliants
+		{Prov: "CT Interactive", Name: "40 Fruitata Wins", LNum: 40, Date: game.Date(2023, 8, 21)},     // see: https://www.slotsmate.com/software/ct-interactive/40-fruitata-wins
+		{Prov: "CT Interactive", Name: "40 Diamond Treasures", LNum: 40, Date: game.Date(2021, 8, 12)}, // see: https://www.livebet2.com/casino/slots/ct-interactive/40-diamond-treasures
+		{Prov: "CT Interactive", Name: "40 Shining jewels", LNum: 40, Date: game.Date(2016, 8, 13)},    // see: https://www.livebet2.com/casino/slots/ct-interactive/40-shining-jewels
+		{Prov: "CT Interactive", Name: "40 Dice Treasures", LNum: 40, Date: game.Date(2021, 9, 30)},    // see: https://www.livebet2.com/casino/slots/ct-interactive/40-dice-treasures
+		{Prov: "CT Interactive", Name: "40 Hell's Cherries", LNum: 40, Date: game.Date(2025, 11, 2)},   // see: https://www.livebet2.com/casino/slots/ct-interactive/40-hell-s-cherries
+		{Prov: "CT Interactive", Name: "Easter Bonanza", LNum: 40, Date: game.Date(2023, 4, 1)},        // see: https://www.livebet2.com/casino/slots/ct-interactive/easter-bonanza
+	},
+	AlgDescr: game.AlgDescr{
+		GT: game.GTslot,
+		GP: game.GPlpay |
+			game.GPlsel |
+			game.GPfgno |
+			game.GPscat |
+			game.GPwild,
+		SX: 5,
+		SY: 4,
+		SN: sn,
+		LN: len(BetLines),
+		BN: 0,
+	},
+	Update: func(ai *game.AlgInfo) { ai.RTP = game.MakeRtpList(ReelsMap) },
+}
+
+func init() {
+	Info.SetupFactory(func(sel int) game.Gamble { return NewGame(sel) }, CalcStat)
+	game.DataRouter["ctinteractive/fruitfeast/rmap"] = &ReelsMap
+	game.LoadMap = append(game.LoadMap, data)
+}
