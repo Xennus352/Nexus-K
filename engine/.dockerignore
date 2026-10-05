@@ -1,0 +1,36 @@
+# Ignore local databases and build artifacts
+*.sqlite
+*.sqlite3
+*.db
+appdata/*.sqlite
+slot-club.sqlite
+slot-spin.sqlite
+
+# Ignore Go build artifacts
+*.exe
+*.test
+/go/bin
+/go/pkg
+
+# Ignore IDE/editor files
+.vscode
+.idea
+*.swp
+*.swo
+
+# Ignore git
+.git
+.gitignore
+
+# Ignore logs
+*.log
+
+# Ignore OS files
+.DS_Store
+Thumbs.db
+
+# Ignore test files
+*_test.go
+
+# Ignore local config overrides
+*.local.yaml
