@@ -9,10 +9,10 @@ RUN corepack enable && corepack prepare pnpm@12.8.1 --activate
 
 # Copy package files and prisma schema
 COPY package.json pnpm-lock.yaml ./
-COPY pnpm-workspace.yaml ./
+COPY .npmrc ./
 COPY prisma ./prisma/
 
-# Install dependencies (onlyBuiltDependencies configured in pnpm-workspace.yaml)
+# Install dependencies (build scripts allowed via .npmrc)
 RUN pnpm install --frozen-lockfile --prefer-offline
 
 # Copy source code
