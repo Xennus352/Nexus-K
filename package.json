@@ -28,15 +28,6 @@
     "react": "19.2.8",
     "react-dom": "19.2.8"
   },
-  "pnpm": {
-    "allowBuilds": [
-      "prisma",
-      "@prisma/client",
-      "@prisma/engines",
-      "esbuild",
-      "unrs-resolver"
-    ]
-  },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
@@ -48,14 +39,5 @@
     "tsx": "^4.23.15",
     "typescript": "^5"
   },
-  "packageManager": "pnpm@12.8.1",
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "@prisma/client",
-      "@prisma/engines",
-      "prisma",
-      "esbuild",
-      "bcryptjs"
-    ]
-  }
+  "packageManager": "pnpm@12.8.1"
 }
