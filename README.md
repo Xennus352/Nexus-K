@@ -279,8 +279,12 @@ bank line.
   Enforced by a filter rather than by deletion on purpose, which means `pnpm db:e2e:http` asserts it:
   the suite loads the deposit page and fails if any other rail's id appears in it.
 - **The rails are drawn as two wide logo tiles** with a hand-drawn radio and a lift on hover, using
-  original SVG wordmarks (`public/gfx/payments/kpay.svg`, `wave.svg`) rather than the generic 400×180
-  catalog art, which was a stock bank icon on both. Swapping in a real brand asset is a path change.
+  the wallet's own marks (`public/gfx/payments/kpay.png`, `wave.png`) rather than the generic 400×180
+  catalog art, which was a stock bank icon on both. Swapping in a real brand asset is a path change —
+  and because `pnpm db:seed` only *creates* a gateway row, a changed path still has to be pushed
+  through `scripts/apply-seed-defaults.mts` or it stays stale on an install that already exists. The
+  mark renders `h-8 w-auto`: the two files are different shapes (512×512 and 1024×500), so height is
+  the constant and the width follows the art instead of letterboxing it into a fixed box.
 - **The file picker is custom, not a styled `<input type="file">`.** The native input is still there
   and still `sr-only`, so keyboard focus, the OS dialog and form semantics are unchanged — what the
   player touches is a button that opens it, and there is no default "Choose File" control on screen.
@@ -318,6 +322,7 @@ matched **in order**, so a narrower keyword set has to be checked before a broad
 
 | Pack      | Reel symbols                      | Backdrop                       |
 | --------- | --------------------------------- | ------------------------------ |
+| `buffalo` | 25 savannah symbols + ×2/×3/×5 tiles | savannah scene (sunset or storm) |
 | `kemet`   | 5 framed gems + frames + mascot   | full Egyptian room             |
 | `zeus`    | 28 symbols + control plates       | 3 painted Olympus scenes       |
 | `viking`  | LUX symbols                       | nordic panorama (from textures)|
@@ -326,17 +331,55 @@ matched **in order**, so a narrower keyword set has to be checked before a broad
 | `fantasy` | pixel symbols                     | fantasy cabinets               |
 | `classic` / `fruits2` / `pixelfood` | fruit and pixel sets   | theme palette                  |
 
+`buffalo` is checked first, so a savannah title (`African Simba`, `Safari Heat`) gets this pack rather
+than falling through to the keyword rotation. Its multiplier plates are the pack's own art and are
+**not** in the reel symbol array: an ordinary reel index must never land on a "×3" and display a
+multiplier the spin did not pay for.
+
+Measured against the engine's 347 slot titles, the keyword lists claim **28** for a themed pack (15
+`egypt`, 6 `viking`, 3 `buffalo`, 2 `zeus`, 2 `kemet`); the rest are handed to the fruit-machine sets
+by a hash of the title, which is what stops the lobby looking like five games repeated. The lists are
+tuned narrow on purpose: matching is *ordered*, so a keyword that genuinely names a game's theme wins
+it, while one that merely sounds plausible steals it from every list below.
+
+A lobby card is chosen the same way rather than left to the hash. Each pack nominates `covers` — the
+art worth showing — and the title gets first refusal on that pool: *Crown* wears the crown, *100
+Jokers* the jester, *Lucky Clover* the clover, *Pharaoh's Gold* the scarab. Packs with one true figure
+nominate only that figure, so all three savannah titles wear the buffalo and every Zeus title wears
+Zeus; the gold pack and the viking pack (which borrows those symbols) nominate a pool with the card
+ranks, the bare Greek letters and the empty `barborder` frame removed — a lobby of gold cards each
+wearing a lone "J" reads as a rules page — and viking drops the fruit and the BAR on top of that, since
+a Norse game in front of a snowbound panorama should not be a grape. The match must also be *specific*:
+a word reaching past half the pool is a namespace rather than a name, which is what stops every title
+containing "fruit" claiming the same apple. Anything unmatched falls back to the hash, so cards that
+name nothing in their pack still differ from their neighbours.
+
+The lobby promotes `TRENDING_ALIAS` to the head of the grid **and** to the home page's TRENDING NOW
+strip, badging it 🔥 Trending. It is pinned by alias rather than taken as "the first savannah game",
+because that would be the engine's catalogue order — adding a word to `BUFFALO_KEYWORDS` would then
+hand the badge to whichever savannah title sorts first. `trendingIndex` is the single lookup both
+sections call, and falls back to any savannah title if the engine drops the pinned one.
+
+Multipliers themselves come from the engine — it prices a line and reports the factor as `mp`. The
+player sees that factor arrive **with the reel**: the landing frame of that cell is built from the same
+tile art React then uncovers, so the ×N drops in under the tumble instead of popping in a beat after
+its own reel stopped. The tile sits *inside* the reel cell the line starts on and multiplies that
+line's payout, and the Gamble choice is drawn over the reel window itself — same frame, same felt —
+rather than as a bar under the console.
+
 ### Regenerating the art
 
-`public/assets/` is gitignored and holds the raw drops. Two scripts turn them into the committed WebP
-under `public/gfx/`:
+The raw art drops live in `public/Upload_Code/` (gitignored) and — for the four bundled slot packs — in
+`assets/` at the repo root (gitignored, and outside `public/` so it is never served). Two scripts turn
+them into the WebP the app actually loads:
 
 ```bash
 ./scripts/optimize-upload-code.sh   # public/Upload_Code/  -> public/gfx + public/sfx
-./scripts/optimize-assets.sh        # public/assets/       -> public/gfx
+./scripts/optimize-assets.sh        # assets/<pack>/       -> public/gfx/{zeus,egypt,viking,buffalo}
 ```
 
-`optimize-assets.sh` handles the three newer packs. Two things it does that are worth knowing:
+`optimize-assets.sh` handles those four packs. It reads `assets/` and rewrites only the four output
+directories, never its own sources. Three things it does that are worth knowing:
 
 - **The Zeus pack was cropped out of one sprite atlas**, so every symbol and button still has the
   atlas background baked in — an opaque `rgb(20,28,38)` field, exactly as its `README.txt` warns. Its
@@ -407,8 +450,7 @@ cp .env.example .env          # fill in DATABASE_URL and SESSION_SECRET
 pnpm db:push                  # sync the Prisma schema to MongoDB
 
 # game engine (slotopol server, Go)
-cd engine && ./slotopol web & # listens on :8080
-cd ..
+pnpm engine &                 # listens on :8080 — keep it running, the lobby lists its games
 
 pnpm db:seed                  # settings, payment rails, payout methods, first admin
 pnpm dev
@@ -430,7 +472,10 @@ flows still work and the alerts simply do not go anywhere.
 
 `engine/` contains a Go build of [slotopol/server](https://github.com/slotopol/server) — the real game
 math for ~350 slot games (Novomatic, NetEnt, CT Interactive and more). The Next.js UI talks to it
-through an authenticated proxy at `/api/engine/*`. To rebuild it: install Go, then
+through an authenticated proxy at `/api/engine/*`. Run it with `pnpm engine` (a second terminal, in
+parallel to `pnpm dev`) — it is a separate process, and **with it stopped the lobby lists no games at
+all**: there is no bundled catalogue to fall back on, only the operator's per-game switches, which are
+empty for a game nobody has seen yet. To rebuild it: install Go, then
 `cd engine && go build -o slotopol .`
 
 The engine's admin account (`admin@example.org` / `0YBoaT` by default) is what authorises wallet
@@ -472,7 +517,7 @@ IBAN and sort code, which is the one thing an operator is most likely to switch 
 | `pnpm db:e2e`         | Money-path test against a live engine                      |
 | `pnpm db:e2e:http`    | Same paths again, driven over HTTP through the real pages  |
 | `./scripts/optimize-upload-code.sh` | Rebuild `public/gfx` + `public/sfx` from `public/Upload_Code/` |
-| `./scripts/optimize-assets.sh`      | Rebuild the zeus/egypt/viking art from `public/assets/`    |
+| `./scripts/optimize-assets.sh`      | Rebuild the buffalo/zeus/egypt/viking WebP in place          |
 
 ### Testing the money paths
 
@@ -528,11 +573,10 @@ Note that server actions are not plain form POSTs: `curl -X POST /portal` return
 cookie. Mint the cookie instead. A form that *is* rendered carries an `$ACTION_ID` and can be replayed
 as multipart POST — that is exactly how `pnpm db:e2e:http` drives the back office.
 
-> ⚠️ Never commit `.env` or share production credentials publicly. `public/assets/` and
-> `public/Upload_Code/` are gitignored; only the derived assets under `public/gfx/` and `public/sfx/`
-> are committed. If credentials were posted anywhere, rotate them — MongoDB Atlas → Database Access →
+> ⚠️ Never commit `.env` or share production credentials publicly. `public/Upload_Code/` is
+> gitignored; the assets under `public/gfx/` and `public/sfx/` are committed. If credentials were posted anywhere, rotate them — MongoDB Atlas → Database Access →
 > Edit password, and Telegram → BotFather → `/revoke`.
 >
 > `TELEGRAM_BOT_TOKEN` is a full write credential for the bot. The token this project was developed
 > against was pasted into a chat, so **rotate it before going live** and paste the replacement into
-> `.env` only.
+> `.env` only.# Nexus-K
