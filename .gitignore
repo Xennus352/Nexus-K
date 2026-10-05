@@ -46,7 +46,7 @@ next-env.d.ts
 src/generated/
 
 # slotopol game engine build
-engine/
+# engine/
 
 # Original free asset packs (~146 MB) — kept locally, never committed and never
 # served: they live at the repo root in assets/, outside public/, so Next.js
